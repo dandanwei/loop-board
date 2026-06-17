@@ -1,8 +1,9 @@
-// Helpers for embedding images into markdown as base64 data URIs.
+// Helpers for adding dropped/pasted images to a markdown field.
 //
-// The board stores descriptions as plain markdown text and renders them with
-// @uiw/react-md-editor, so a dropped image just becomes an `![alt](data:...)`
-// node — no upload endpoint or file storage needed.
+// Images are uploaded to the board server, which saves them under
+// data/uploads/ and returns a URL plus the absolute local path. We then insert
+// a markdown image (rendered by @uiw/react-md-editor via the URL) followed by
+// the local path as a caption, so an agent working the task can open the file.
 
 export const MAX_IMAGE_MB = 5;
 export const MAX_IMAGE_BYTES = MAX_IMAGE_MB * 1024 * 1024;
@@ -43,17 +44,21 @@ export function fileToDataUrl(file) {
   });
 }
 
-export function imageMarkdown(name, dataUrl) {
+// One image block: the rendered image (by URL) plus its local path as a
+// caption in backticks, so it's both visible in the board and readable by an
+// agent that opens the raw markdown.
+export function imageBlock({ name, url, path }) {
   const alt = (name || 'image').replace(/[[\]]/g, '');
-  return `![${alt}](${dataUrl})`;
+  const caption = path ? `\n\n\`${path}\`` : '';
+  return `![${alt}](${url})${caption}`;
 }
 
-// Append one or more image-markdown snippets to an existing markdown string,
-// keeping each on its own line.
-export function appendToMarkdown(existing, snippets) {
-  const blocks = Array.isArray(snippets) ? snippets : [snippets];
-  const joined = blocks.join('\n');
+// Append one or more blocks to an existing markdown string, separated by a
+// blank line.
+export function appendToMarkdown(existing, blocks) {
+  const list = Array.isArray(blocks) ? blocks : [blocks];
+  const joined = list.join('\n\n');
   if (!existing) return `${joined}\n`;
-  const sep = existing.endsWith('\n') ? '' : '\n\n';
+  const sep = existing.endsWith('\n') ? '\n' : '\n\n';
   return `${existing}${sep}${joined}\n`;
 }

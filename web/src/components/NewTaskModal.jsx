@@ -7,7 +7,7 @@ import {
   hasFiles,
   imageFilesFrom,
   fileToDataUrl,
-  imageMarkdown,
+  imageBlock,
   appendToMarkdown,
 } from '../images.js';
 
@@ -25,11 +25,13 @@ export default function NewTaskModal({
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [dragging, setDragging] = useState(false);
+  const [uploading, setUploading] = useState(false);
   // dragenter/dragleave fire for every child element; count depth so the
   // overlay only clears when the cursor truly leaves the modal.
   const dragDepth = useRef(0);
 
-  // Read image files and embed them into the description as data-URI markdown.
+  // Upload image files to the board, then reference them in the description by
+  // URL (for rendering) + local path (so an agent can open the file).
   const embedImages = async (files) => {
     if (!files.length) return;
     const tooBig = files.find((f) => f.size > MAX_IMAGE_BYTES);
@@ -39,15 +41,20 @@ export default function NewTaskModal({
       );
       return;
     }
+    setError('');
+    setUploading(true);
     try {
-      const snippets = [];
+      const blocks = [];
       for (const f of files) {
-        snippets.push(imageMarkdown(f.name, await fileToDataUrl(f)));
+        const dataUrl = await fileToDataUrl(f);
+        const saved = await api.uploadImage({ name: f.name, dataUrl });
+        blocks.push(imageBlock({ name: f.name, url: saved.url, path: saved.path }));
       }
-      setDescription((prev) => appendToMarkdown(prev, snippets));
-      setError('');
-    } catch {
-      setError('Could not read the dropped image.');
+      setDescription((prev) => appendToMarkdown(prev, blocks));
+    } catch (e) {
+      setError(`Could not upload the image: ${e.message}`);
+    } finally {
+      setUploading(false);
     }
   };
 
@@ -116,10 +123,10 @@ export default function NewTaskModal({
         onDrop={onDrop}
         onPaste={onPaste}
       >
-        {dragging && (
+        {(dragging || uploading) && (
           <div className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center rounded-xl border-2 border-dashed border-violet-400 bg-violet-50/85">
             <div className="rounded-md bg-white/90 px-4 py-2 text-sm font-medium text-violet-700 shadow">
-              Drop image to embed in the description
+              {uploading ? 'Uploading image…' : 'Drop image to attach it'}
             </div>
           </div>
         )}
@@ -185,7 +192,7 @@ export default function NewTaskModal({
             <label className="mb-1 flex items-baseline justify-between text-xs font-semibold uppercase tracking-wide text-slate-400">
               <span>Description</span>
               <span className="font-normal normal-case tracking-normal text-slate-400">
-                drag &amp; drop or paste an image to embed it
+                drag &amp; drop or paste an image to attach it
               </span>
             </label>
             <MDEditor
@@ -220,10 +227,10 @@ export default function NewTaskModal({
           </button>
           <button
             onClick={submit}
-            disabled={saving}
+            disabled={saving || uploading}
             className="rounded-md bg-ink px-4 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
           >
-            {saving ? 'Creating…' : 'Create task'}
+            {saving ? 'Creating…' : uploading ? 'Uploading…' : 'Create task'}
           </button>
         </div>
       </div>

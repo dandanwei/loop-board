@@ -1,7 +1,8 @@
 import express from 'express';
 import cors from 'cors';
-import { existsSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { dirname, extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   STATUSES,
@@ -19,12 +20,32 @@ import {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || process.env.BOARD_PORT || 5151;
 
+// Dropped images are saved here so descriptions can reference a stable local
+// file path (which agents working a task can read) instead of inlining base64.
+const UPLOADS_DIR =
+  process.env.BOARD_UPLOADS || join(__dirname, '..', 'data', 'uploads');
+mkdirSync(UPLOADS_DIR, { recursive: true });
+
+const EXT_BY_MIME = {
+  'image/png': '.png',
+  'image/jpeg': '.jpg',
+  'image/jpg': '.jpg',
+  'image/gif': '.gif',
+  'image/webp': '.webp',
+  'image/svg+xml': '.svg',
+  'image/bmp': '.bmp',
+  'image/avif': '.avif',
+};
+
 const app = express();
 app.use(cors());
-// Descriptions can embed images as base64 data URIs, so allow a larger body.
+// Uploads are posted as base64 data URIs, so allow a larger request body.
 app.use(express.json({ limit: '25mb' }));
 
 const api = express.Router();
+
+// Serve previously-uploaded images so the board UI can render them by URL.
+api.use('/uploads', express.static(UPLOADS_DIR));
 
 const wrap = (fn) => (req, res) => {
   try {
@@ -36,6 +57,45 @@ const wrap = (fn) => (req, res) => {
 };
 
 api.get('/health', (_req, res) => res.json({ ok: true, time: now() }));
+
+// Save an uploaded image to disk and return both a URL (for rendering in the
+// board) and the absolute local path (so an agent can read the file directly).
+api.post(
+  '/uploads',
+  wrap((req, res) => {
+    const { name = 'image', dataUrl } = req.body || {};
+    if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:')) {
+      return res.status(400).json({ error: 'dataUrl (data: URI) is required' });
+    }
+    const comma = dataUrl.indexOf(',');
+    const header = dataUrl.slice(5, comma); // e.g. "image/png;base64"
+    const mime = header.split(';')[0];
+    if (!mime.startsWith('image/') || !header.includes('base64')) {
+      return res.status(400).json({ error: 'only base64 image data is accepted' });
+    }
+    const buf = Buffer.from(dataUrl.slice(comma + 1), 'base64');
+    if (!buf.length) return res.status(400).json({ error: 'empty image data' });
+
+    // Build a safe, unique filename, keeping a hint of the original name.
+    const base = String(name)
+      .replace(/[^a-zA-Z0-9._-]/g, '_')
+      .replace(/_+/g, '_')
+      .slice(-60);
+    let ext = extname(base).toLowerCase();
+    if (!ext) ext = EXT_BY_MIME[mime] || '.bin';
+    const stem = base.slice(0, base.length - extname(base).length) || 'image';
+    const filename = `${randomUUID().slice(0, 8)}-${stem}${ext}`;
+    const abspath = join(UPLOADS_DIR, filename);
+    writeFileSync(abspath, buf);
+
+    res.status(201).json({
+      filename,
+      url: `/api/uploads/${filename}`,
+      path: abspath,
+      bytes: buf.length,
+    });
+  })
+);
 
 api.get('/projects', wrap((_req, res) => res.json(distinctProjects())));
 

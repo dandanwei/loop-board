@@ -25,6 +25,8 @@ export const api = {
   listTasks: (params = {}) =>
     req('/tasks?' + new URLSearchParams(params).toString()),
   getTask: (id) => req(`/tasks/${id}`),
+  uploadImage: (body) =>
+    req('/uploads', { method: 'POST', body: JSON.stringify(body) }),
   createTask: (body) =>
     req('/tasks', { method: 'POST', body: JSON.stringify(body) }),
   updateTask: (id, body) =>
