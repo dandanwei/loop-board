@@ -21,7 +21,8 @@ const PORT = process.env.PORT || process.env.BOARD_PORT || 5151;
 
 const app = express();
 app.use(cors());
-app.use(express.json({ limit: '5mb' }));
+// Descriptions can embed images as base64 data URIs, so allow a larger body.
+app.use(express.json({ limit: '25mb' }));
 
 const api = express.Router();
 
