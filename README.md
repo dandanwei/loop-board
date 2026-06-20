@@ -63,7 +63,7 @@ The repo ships three agent skills under `.claude/skills/`, all named with a
 | --- | --- | --- | --- |
 | **`loop-board-take-task`** | The everyday driver, running a full board cycle: **first** merges any approved (`ready_to_merge`) branches into the default branch (aborting + bouncing a task back to Pending Review on a conflict it can't safely resolve), **then** claims the next backlog task, implements it on a new branch, commits, and posts the answer to **Pending Review**. | the project you're working on | **Yes** — the everyday driver |
 | **`loop-board-work-board-task`** | Works one **specific** task by id (not "the next one") end to end — the unit the orchestrator dispatches. | a project sub-session | Only if you use the orchestrator |
-| **`loop-board-run-board-orchestrator`** | Sweeps every configured project, claims a task, and dispatches a `loop-board-work-board-task` sub-session for each. | the loop-board repo (or anywhere) | Only if you launch it from outside this repo |
+| **`loop-board-run-board-orchestrator`** | Sweeps every configured project, claims its highest-priority task, and dispatches a `loop-board-work-board-task` sub-session for each — **one task per project, run concurrently** across projects. | the loop-board repo (or anywhere) | Only if you launch it from outside this repo |
 
 ### Which skills do I need?
 
