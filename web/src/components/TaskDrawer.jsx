@@ -1,7 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import MDEditor from '@uiw/react-md-editor';
 import { api } from '../api.js';
-import { COLUMNS, PRIORITY, STATUS_LABEL, fmtDate } from '../constants.js';
+import {
+  COLUMNS,
+  PRIORITY,
+  STATUS_LABEL,
+  fmtDate,
+  projectBadgeClasses,
+} from '../constants.js';
 
 const ALL_STATUSES = [
   'backlog',
@@ -242,7 +248,7 @@ export default function TaskDrawer({ id, onClose, onChanged }) {
                 </h2>
               )}
               <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs">
-                <span className="rounded bg-slate-100 px-1.5 py-0.5 font-medium text-slate-600">
+                <span className={`rounded px-1.5 py-0.5 font-medium ${projectBadgeClasses(task.project)}`}>
                   {task.project}
                 </span>
                 <select
