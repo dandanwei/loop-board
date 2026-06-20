@@ -36,6 +36,9 @@ npm run seed           # optional: add a couple of demo tasks
 npm run dev            # API on :5151, UI with hot-reload on http://localhost:5173
 ```
 
+If you skip `npm link`, every `loop-board <cmd>` below also works by calling the
+CLI directly from this repo: `node /path/to/loop-board/cli/board.js <cmd>`.
+
 For a single-port production-style run:
 
 ```bash
@@ -43,21 +46,40 @@ npm run build          # builds the UI into web/dist
 npm start              # serves UI + API together on http://localhost:5151
 ```
 
-Open the UI, pick/create a project, add a task with a clear definition of done.
+Either way, open the UI in your browser (`http://localhost:5173` in dev mode,
+`http://localhost:5151` in the single-port prod mode), pick or create a project,
+and add a task with a clear definition of done.
 
 ## Using the skill from a project
 
-The skill lives in `.claude/skills/take-task/`. To use it from **any** project
-session, make it available to Claude Code and tell the project which board label
-it belongs to:
+The skill ships **inside this repo** at `.claude/skills/take-task/`. To use it
+from **any other** project, do these two one-time setup steps: (1) make the skill
+available to Claude Code globally, and (2) tell each consuming project which board
+label it belongs to.
+
+**1. Make the skill global (once).** Run this **from the loop-board repo root** —
+`$(pwd)` must expand to *this* repo's path, because the symlink has to point at
+the skill folder that lives here:
 
 ```bash
-# Make the skill global (once):
+cd /path/to/loop-board        # the loop-board repo you cloned (NOT your other project)
 mkdir -p ~/.claude/skills
 ln -s "$(pwd)/.claude/skills/take-task" ~/.claude/skills/take-task
 
-# In each consuming project's repo root, add a .board.json:
-cp /path/to/loop-board/.board.example.json /path/to/your-project/.board.json
+# Sanity-check: the link should resolve to the loop-board repo above
+ls -l ~/.claude/skills/take-task
+```
+
+(If you prefer not to symlink, you can instead copy the folder, but a symlink
+keeps the skill in sync as this repo updates.)
+
+**2. Point each consuming project at the board.** In the repo root of the
+*project you want to work on*, add a `.board.json`. Its `project` value must match
+the label you gave the task on the board:
+
+```bash
+# Run from your other project's repo root:
+cp /path/to/loop-board/.board.example.json ./.board.json
 # then edit it:  { "project": "your-label", "boardUrl": "http://localhost:5151" }
 ```
 
