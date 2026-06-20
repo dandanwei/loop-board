@@ -1,12 +1,29 @@
 ---
 name: loop-board-run-board-orchestrator
-description: Coordinate multi-project work from the Loop Board. For each configured project that has backlog tasks, claim the highest-priority one, dispatch it to a project-specific Claude Code sub-session (via the loop-board-work-board-task skill), wait for completion, and collect the result. Use when the user says "run the board orchestrator", "orchestrate the board", "dispatch board tasks", or "work all projects".
+description: Coordinate multi-project work from the Loop Board. For each configured project that has backlog tasks, claim its highest-priority one and dispatch it to a project-specific Claude Code sub-session (via the loop-board-work-board-task skill). Tasks for different projects run concurrently — one task per project. Use when the user says "run the board orchestrator", "orchestrate the board", "dispatch board tasks", or "work all projects".
 ---
 
 # loop-board-run-board-orchestrator — coordinate multi-project task execution
 
 You run from the **loop-board repo** and dispatch tasks to **other projects'**
-Claude Code sessions, one task at a time, then collect results.
+Claude Code sessions, then collect results.
+
+## Concurrency model — one task per project, projects run concurrently
+
+- **One task per project per run.** For each configured project you claim its
+  single highest-priority backlog task — never more than one task from the same
+  project at a time. (A project is a single git repo; running two sub-sessions
+  in the same working tree would clobber each other. In-project concurrency
+  would need git worktrees, which this skill does not do.)
+- **Different projects run concurrently.** Each project's task runs in its own
+  repo, so there is no shared working tree between them. Launch every project's
+  sub-session in the **background** without waiting, then watch them all finish
+  together. With N configured projects that have backlog work, you end up with up
+  to N sub-sessions running at once.
+
+The flow is therefore two passes: a **launch pass** (§2 — claim + dispatch one
+task per project, back to back, without blocking) and a **wait pass** (§3 — poll
+every in-flight task together until each completes or times out).
 
 ## 0. Preconditions & setup
 
@@ -21,7 +38,6 @@ Claude Code sessions, one task at a time, then collect results.
   ```
 
 - `loop-board` is generally **not** on PATH; always invoke it as `$BOARD`.
-- Process **one task at a time** (sequential) to avoid resource conflicts.
 - **The `loop-board-work-board-task` skill must be visible to sub-sessions.** A
   sub-session runs in another repo, so it only finds the skill if it's installed
   at user level (`~/.claude/skills/loop-board-work-board-task/`) or copied into
@@ -39,14 +55,25 @@ projects are eligible — a project needs a path mapping (set in the UI under
 ⚙ Configure) so you know where to `cd`. If the list is empty, tell the user to
 configure at least one project and stop.
 
-## 2. For each configured project, check for backlog work
+## 2. Launch pass — claim one task per project and dispatch it (don't wait)
+
+Keep a running list of **active dispatches** as you go — record
+`{ project, id, session_id, path, log, started_at }` for each one you launch.
+You'll watch them all together in §3.
+
+Iterate the configured projects. For **each** project, do the following and then
+**immediately move to the next project** — do *not* wait for the sub-session to
+finish:
+
+### 2a. Check for backlog work
 
 ```bash
 $BOARD list --project <label> --status backlog --json
 ```
 
-Skip projects with no backlog tasks. For a project that has them, verify its
-path before dispatching:
+Skip projects with no backlog tasks.
+
+### 2b. Verify the project path
 
 ```bash
 curl -s -X POST $BOARD_URL/api/test-path \
@@ -57,7 +84,7 @@ curl -s -X POST $BOARD_URL/api/test-path \
 If `exists` is false or `isDirectory` is false, skip the project and warn the
 user — do not try to `cd` into a bad path.
 
-## 3. Claim the task and assign a session id
+### 2c. Claim exactly one task and assign a session id
 
 Claim atomically so the id and details are known up front:
 
@@ -65,8 +92,9 @@ Claim atomically so the id and details are known up front:
 $BOARD next --project <label> --json     # flips highest-priority backlog → in_progress
 ```
 
-(Exit code 3 = nothing to claim; move to the next project.) Note the task `id`
-and build a slug from its title.
+(Exit code 3 = nothing to claim; move to the next project.) This claims **one**
+task — the highest priority — and that is the only task you take from this
+project this run. Note the task `id` and build a slug from its title.
 
 Generate the session id **yourself** so resume works immediately and you don't
 have to scrape it from output later:
@@ -83,7 +111,7 @@ curl -s -X PATCH $BOARD_URL/api/tasks/<id> \
   -d "{\"session_id\":\"$SESSION_ID\",\"session_title\":\"task-<id>\",\"agent_tool\":\"claude-code\"}"
 ```
 
-## 4. Dispatch a project sub-session
+### 2d. Dispatch the project sub-session in the background
 
 Run the sub-session **in the project directory**, with the fixed session id and
 a human-friendly display name. Pass the task id and CLI path **in the prompt**
@@ -100,8 +128,13 @@ claude \
 ```
 
 **Run this with the Bash tool in the background** (`run_in_background: true`) and
-tee its output to a log file, e.g. `/tmp/loop-subsession-<id>.json`, so you can
-poll while it works. Return to `$LOOP_BOARD` afterward.
+tee its output to a per-task log file, e.g. `/tmp/loop-subsession-<id>.json`, so
+you can poll it later. **Do not block on it** — append it to your active list and
+go straight back to step 2a for the next project. Return to `$LOOP_BOARD`
+(`cd "$LOOP_BOARD"`) before the next claim so CLI paths resolve.
+
+Because each launch is backgrounded and you don't wait between projects, the
+sub-sessions run **concurrently** — one per project.
 
 > **Permissions.** `--permission-mode acceptEdits` auto-accepts file edits but
 > may still block some shell commands in print mode. For a fully unattended run
@@ -110,19 +143,25 @@ poll while it works. Return to `$LOOP_BOARD` afterward.
 > queue / sandbox** — it removes the sub-session's safety prompts. Default to
 > `acceptEdits` and let the user opt into bypass explicitly.
 
-## 5. Wait for completion
+## 3. Wait pass — watch all in-flight tasks together
 
-**Primary signal — board status.** Poll every ~30s:
+Once the launch pass is done, you have up to one running sub-session per project.
+Now poll them **all together** (not one-at-a-time) until each is resolved.
+
+**Primary signal — board status.** Every ~30s, check the status of every task
+still in flight:
 
 ```bash
-$BOARD show <id> --json     # look at .status
+$BOARD show <id> --json     # look at .status, for each active id
 ```
 
-The task is done when status is `pending_review` (success) or `done`. As soon as
-you see that, stop polling and collect the result.
+A task is finished when its status is `pending_review` (success) or `done`. As
+soon as a task reaches that, mark it complete in your active list and stop
+polling *that* task — but keep polling the rest until every active task is
+resolved.
 
-**Hang detection — session-log mtime (best effort, macOS).** The session log
-lives at:
+**Hang detection — session-log mtime (best effort, macOS).** Per task, the
+session log lives at:
 
 ```bash
 ENC="$(printf '%s' "<project_path>" | sed 's#/#-#g')"   # /a/b → -a-b
@@ -134,15 +173,18 @@ fi
 ```
 
 (Note: `stat -f %m` is the macOS/BSD form; Linux uses `stat -c %Y`.) Treat this
-as a heuristic — if the log path can't be found, rely on the overall cap below.
+as a heuristic — if the log path can't be found, rely on the cap below.
 
-**Hard cap.** Regardless of the above, stop waiting after **30 minutes** of
-wall-clock for a single task.
+**Hard cap.** Stop waiting on any single task after **30 minutes** of wall-clock
+since *its own* launch (`started_at`). One slow task must not hold up reporting
+the others — resolve each task independently as it finishes or times out.
 
-## 6. On completion vs timeout
+## 4. Resolve each task — completion vs timeout
+
+Handle each active task on its own as it settles:
 
 - **Success** (`pending_review`/`done`): read the answer with
-  `$BOARD show <id>` and report it (see step 7). Also note the background
+  `$BOARD show <id>` and report it (see §5). Also note the background
   sub-session's JSON output (`/tmp/loop-subsession-<id>.json`) for its summary.
 - **Timeout / hang** (cap hit or 10-min inactivity): the sub-session didn't
   finish. Document it and release the task for retry:
@@ -152,16 +194,15 @@ wall-clock for a single task.
   $BOARD status <id> backlog
   ```
 
-  Do **not** immediately re-claim it this run — move on and surface it to the
-  user. (There is no `failed` status; returning it to backlog lets a human or a
-  later run retry it.)
+  Do **not** immediately re-claim it this run — surface it to the user. (There is
+  no `failed` status; returning it to backlog lets a human or a later run retry.)
 
-## 7. Report and continue
+## 5. Report roll-up
 
-After each task, report concisely to the user: project, task id, final status,
-branch, session id (for resume), and a one-line summary of the answer. Then
-continue to the next configured project. When every configured project has been
-checked, print a short roll-up (tasks dispatched, completed, timed out) and stop.
+When every active task has been resolved (completed or timed out), print a short
+roll-up to the user. Per task: project, task id, final status, branch, session id
+(for resume), and a one-line summary of the answer. Then a totals line: projects
+checked, tasks dispatched, completed, timed out. Then stop.
 
 ## Quick reference
 
@@ -169,7 +210,7 @@ checked, print a short roll-up (tasks dispatched, completed, timed out) and stop
 LOOP_BOARD="$(pwd)"; BOARD="node $LOOP_BOARD/cli/board.js"; BOARD_URL="http://localhost:5151"
 curl -s $BOARD_URL/api/projects-config                 # configured projects
 $BOARD list --project <p> --status backlog --json      # backlog for a project
-$BOARD next --project <p> --json                        # claim highest-priority backlog
+$BOARD next --project <p> --json                        # claim ONE (highest-priority) backlog task
 $BOARD show <id> --json                                 # poll status / read answer
 $BOARD status <id> backlog                               # release on timeout
 ```
