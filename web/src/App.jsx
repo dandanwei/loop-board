@@ -43,9 +43,11 @@ export default function App() {
     <div className="flex h-full flex-col">
       <header className="flex items-center gap-4 border-b border-slate-200 bg-white px-5 py-3">
         <div className="flex items-center gap-2">
-          <div className="grid h-7 w-7 place-items-center rounded-md bg-ink text-sm font-bold text-white">
-            ↻
-          </div>
+          <img
+            src="/favicon.svg"
+            alt="Loop Board"
+            className="h-7 w-7 rounded-md"
+          />
           <h1 className="text-lg font-semibold tracking-tight">Loop Board</h1>
         </div>
 
