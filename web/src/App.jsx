@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { api } from './api.js';
+import { DEFAULT_STALE_THRESHOLD_MIN } from './constants.js';
 import Board from './components/Board.jsx';
 import TaskDrawer from './components/TaskDrawer.jsx';
 import NewTaskModal from './components/NewTaskModal.jsx';
@@ -13,6 +14,9 @@ export default function App() {
   const [selectedId, setSelectedId] = useState(null);
   const [showNew, setShowNew] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
+  const [settings, setSettings] = useState({
+    stale_threshold_minutes: DEFAULT_STALE_THRESHOLD_MIN,
+  });
   const [error, setError] = useState('');
 
   const refresh = useCallback(async () => {
@@ -29,9 +33,18 @@ export default function App() {
     }
   }, [project, includeArchived]);
 
+  const loadSettings = useCallback(async () => {
+    try {
+      setSettings(await api.getSettings());
+    } catch {
+      /* keep defaults if settings can't be loaded */
+    }
+  }, []);
+
   useEffect(() => {
     refresh();
-  }, [refresh]);
+    loadSettings();
+  }, [refresh, loadSettings]);
 
   // Light polling so agent write-backs show up without a manual refresh.
   useEffect(() => {
@@ -104,6 +117,7 @@ export default function App() {
         tasks={tasks}
         includeArchived={includeArchived}
         onOpen={setSelectedId}
+        staleThresholdMinutes={settings.stale_threshold_minutes}
       />
 
       {selectedId != null && (
@@ -128,8 +142,10 @@ export default function App() {
 
       {showConfig && (
         <ProjectsConfig
+          settings={settings}
           onClose={() => setShowConfig(false)}
           onChanged={refresh}
+          onSettingsChanged={loadSettings}
         />
       )}
     </div>

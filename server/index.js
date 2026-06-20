@@ -19,6 +19,8 @@ import {
   getProjectConfig,
   upsertProjectConfig,
   deleteProjectConfig,
+  getSettings,
+  updateSettings,
 } from './db.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -165,6 +167,9 @@ api.post(
     if (!task) return res.status(404).json({ error: 'task not found' });
     const patch = { status };
     if (status === 'done' || status === 'archived') patch.completed_at = now();
+    // Stamp when the task entered in_progress so the board can measure how long
+    // it has been running (claimNext already sets this; cover manual moves too).
+    if (status === 'in_progress' && !task.claimed_at) patch.claimed_at = now();
     res.json(
       updateTask(id, patch, {
         event: {
@@ -268,6 +273,23 @@ api.delete(
     const ok = deleteProjectConfig(req.params.project);
     if (!ok) return res.status(404).json({ error: 'config not found' });
     res.status(204).end();
+  })
+);
+
+// ---- settings ---------------------------------------------------------------
+// Board-wide preferences, e.g. the threshold after which an in_progress task is
+// flagged as running long. Persisted so the choice survives restarts.
+
+api.get('/settings', wrap((_req, res) => res.json(getSettings())));
+
+api.patch(
+  '/settings',
+  wrap((req, res) => {
+    try {
+      res.json(updateSettings(req.body || {}));
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
   })
 );
 

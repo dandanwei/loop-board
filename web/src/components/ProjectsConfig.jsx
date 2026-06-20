@@ -21,7 +21,12 @@ function PathStatus({ result }) {
   );
 }
 
-export default function ProjectsConfig({ onClose, onChanged }) {
+export default function ProjectsConfig({
+  settings,
+  onClose,
+  onChanged,
+  onSettingsChanged,
+}) {
   const [configs, setConfigs] = useState([]);
   const [project, setProject] = useState('');
   const [path, setPath] = useState('');
@@ -29,6 +34,17 @@ export default function ProjectsConfig({ onClose, onChanged }) {
   const [saving, setSaving] = useState(false);
   // path-test results keyed by project label, plus 'new' for the add form.
   const [tests, setTests] = useState({});
+  // Stale-task threshold (minutes); editable as a string so the field can be
+  // cleared while typing.
+  const [threshold, setThreshold] = useState(
+    String(settings?.stale_threshold_minutes ?? 30)
+  );
+  const [savingThreshold, setSavingThreshold] = useState(false);
+  const [thresholdSaved, setThresholdSaved] = useState(false);
+
+  useEffect(() => {
+    setThreshold(String(settings?.stale_threshold_minutes ?? 30));
+  }, [settings?.stale_threshold_minutes]);
 
   const load = async () => {
     try {
@@ -74,6 +90,26 @@ export default function ProjectsConfig({ onClose, onChanged }) {
     }
   };
 
+  const handleSaveThreshold = async () => {
+    const n = Number(threshold);
+    if (!Number.isFinite(n) || n <= 0) {
+      setError('Stale threshold must be a positive number of minutes.');
+      return;
+    }
+    setSavingThreshold(true);
+    setThresholdSaved(false);
+    try {
+      await api.updateSettings({ stale_threshold_minutes: n });
+      setError('');
+      setThresholdSaved(true);
+      onSettingsChanged?.();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setSavingThreshold(false);
+    }
+  };
+
   const handleDelete = async (proj) => {
     if (!confirm(`Remove the path mapping for "${proj}"?`)) return;
     try {
@@ -90,10 +126,10 @@ export default function ProjectsConfig({ onClose, onChanged }) {
       <div className="relative my-6 w-full max-w-2xl rounded-xl bg-white shadow-2xl">
         <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
           <div>
-            <h2 className="text-base font-semibold">Project paths</h2>
+            <h2 className="text-base font-semibold">Configuration</h2>
             <p className="text-xs text-slate-500">
-              Map a project label to its repo path so the orchestrator knows where
-              to dispatch tasks.
+              Board settings and project label → repo path mappings used by the
+              orchestrator.
             </p>
           </div>
           <button
@@ -105,6 +141,39 @@ export default function ProjectsConfig({ onClose, onChanged }) {
         </div>
 
         <div className="space-y-4 p-5">
+          {/* board settings */}
+          <div className="rounded-md border border-slate-200 p-3">
+            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+              Board settings
+            </h3>
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="text-sm text-slate-600">
+                Highlight a task as running long after
+              </label>
+              <input
+                type="number"
+                min="1"
+                value={threshold}
+                onChange={(e) => {
+                  setThreshold(e.target.value);
+                  setThresholdSaved(false);
+                }}
+                className="w-20 rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+              />
+              <span className="text-sm text-slate-600">minutes in progress.</span>
+              <button
+                onClick={handleSaveThreshold}
+                disabled={savingThreshold}
+                className="rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50 disabled:opacity-50"
+              >
+                {savingThreshold ? 'Saving…' : 'Save'}
+              </button>
+              {thresholdSaved && (
+                <span className="text-xs text-emerald-600">✓ saved</span>
+              )}
+            </div>
+          </div>
+
           {/* existing configs */}
           {configs.length === 0 ? (
             <p className="rounded-md border border-dashed border-slate-300 p-4 text-center text-sm text-slate-400">
