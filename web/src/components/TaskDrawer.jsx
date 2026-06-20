@@ -28,9 +28,11 @@ function CopyButton({ value }) {
   );
 }
 
-// Builds a copy-paste `claude --resume` command. The repo path isn't on the
-// task, so look it up from the project's configured path mapping.
-function ResumeButton({ session_id, project }) {
+// Builds a one-line copy-paste command to jump back into the agent's session:
+// cd into the repo (path comes from the project config), check out the task's
+// branch, then `claude --resume <session id>`. The `git checkout` segment is
+// skipped when the task has no branch.
+function ResumeButton({ session_id, branch, project }) {
   const [showCommand, setShowCommand] = useState(false);
   const [copied, setCopied] = useState(false);
   const [projectPath, setProjectPath] = useState('');
@@ -52,8 +54,11 @@ function ResumeButton({ session_id, project }) {
 
   if (!session_id) return null;
 
-  const resume = `claude --resume ${session_id}`;
-  const fullCommand = projectPath ? `cd ${projectPath} && ${resume}` : resume;
+  const parts = [];
+  if (projectPath) parts.push(`cd ${projectPath}`);
+  if (branch) parts.push(`git checkout ${branch}`);
+  parts.push(`claude --resume ${session_id}`);
+  const fullCommand = parts.join(' && ');
 
   return (
     <div className="pt-1">
@@ -294,6 +299,15 @@ export default function TaskDrawer({ id, onClose, onChanged }) {
                   <CopyButton value={task.session_title} />
                 </div>
               )}
+              {task.session_id && (
+                <div className="flex items-center gap-2">
+                  <span className="w-16 shrink-0 text-slate-400">id</span>
+                  <span className="flex-1 truncate font-mono">
+                    {task.session_id}
+                  </span>
+                  <CopyButton value={task.session_id} />
+                </div>
+              )}
               {task.branch && (
                 <div className="flex items-center gap-2">
                   <span className="w-16 shrink-0 text-slate-400">branch</span>
@@ -310,6 +324,7 @@ export default function TaskDrawer({ id, onClose, onChanged }) {
               {task.session_id && (
                 <ResumeButton
                   session_id={task.session_id}
+                  branch={task.branch}
                   project={task.project}
                 />
               )}

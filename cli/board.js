@@ -125,6 +125,7 @@ function printTask(task, { full = false } = {}) {
   );
   if (task.branch) console.log(`  branch: ${task.branch}`);
   if (task.session_title) console.log(`  session: ${task.session_title}`);
+  if (task.session_id) console.log(`  session_id: ${task.session_id}`);
   if (full) {
     console.log('\n--- description ---');
     console.log(task.description || '(none)');
