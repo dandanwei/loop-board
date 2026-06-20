@@ -1,14 +1,14 @@
 ---
-name: work-board-task
-description: Execute one specific Loop Board task end to end inside a project's own session. Given a task id (passed in the prompt by the orchestrator), read it from the board, implement it on a new git branch, run the checks, commit, and post the result back to Pending Review. Use when a prompt says "use the work-board-task skill to complete board task #N" — typically dispatched by the run-board-orchestrator skill.
+name: loop-board-work-board-task
+description: Execute one specific Loop Board task end to end inside a project's own session. Given a task id (passed in the prompt by the orchestrator), read it from the board, implement it on a new git branch, run the checks, commit, and post the result back to Pending Review. Use when a prompt says "use the loop-board-work-board-task skill to complete board task #N" — typically dispatched by the loop-board-run-board-orchestrator skill.
 ---
 
-# work-board-task — complete one board task
+# loop-board-work-board-task — complete one board task
 
 You are a **project sub-session** dispatched to finish a single, already-known
 task from the local Loop Board, autonomously, then report back. This differs
-from `take-task`: you do **not** pick the next task — you work the **exact task
-id** given to you.
+from `loop-board-take-task`: you do **not** pick the next task — you work the
+**exact task id** given to you.
 
 ## 0. Inputs (read from your prompt)
 

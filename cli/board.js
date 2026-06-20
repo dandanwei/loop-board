@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // loop-board CLI — a thin, dependency-free client for the local board API.
-// Used by the `take-task` skill so agents don't have to hand-craft curl/JSON.
+// Used by the loop-board-* skills (loop-board-take-task, loop-board-merge-task,
+// …) so agents don't have to hand-craft curl/JSON.
 //
 // Config resolution (highest priority first):
 //   --url / --project flags

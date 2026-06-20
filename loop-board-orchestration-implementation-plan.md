@@ -9,7 +9,7 @@
 ## 🎯 Problem Statement
 
 **Current State:**
-- Single project tasks via `take-task` skill
+- Single project tasks via `loop-board-take-task` skill
 - Each project has its own Claude Code session
 - No centralized orchestration
 - Manual task assignment and monitoring
@@ -62,7 +62,7 @@
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │              Main Orchestrator Session                      │
-│         (run-board-orchestrator skill)                      │
+│         (loop-board-run-board-orchestrator skill)           │
 └────────────────────┬────────────────────────────────────────┘
                      │
                      ▼
@@ -259,7 +259,7 @@ handleTestPath(path) - Validate path exists
 
 ### 7. Work-Board-Task Skill (NEW FILE)
 
-**Path:** `.claude/skills/work-board-task/SKILL.md`
+**Path:** `.claude/skills/loop-board-work-board-task/SKILL.md`
 
 **Purpose:** Execute single task in project session
 
@@ -296,7 +296,7 @@ loop-board answer <id> --answer-file output.md --session-id $(claude --session-i
 
 ### 8. Run-Board-Orchestrator Skill (NEW FILE)
 
-**Path:** `.claude/skills/run-board-orchestrator/SKILL.md`
+**Path:** `.claude/skills/loop-board-run-board-orchestrator/SKILL.md`
 
 **Purpose:** Coordinate multi-project task execution
 
@@ -310,7 +310,7 @@ loop-board answer <id> --answer-file output.md --session-id $(claude --session-i
      - Start sub-session:
        ```bash
        claude -n task-<id>-<slug> \
-         -p "Use work-board-task skill to execute this task" \
+         -p "Use loop-board-work-board-task skill to execute this task" \
          --output-format json
        ```
      - Capture `session_id` from output
@@ -574,7 +574,7 @@ curl -X POST http://localhost:5151/api/projects-config \
 ```bash
 cd /path/to/loop-board
 claude
-# Say: "Use run-board-orchestrator skill"
+# Say: "Use loop-board-run-board-orchestrator skill"
 ```
 
 **What happens:**
@@ -620,8 +620,8 @@ claude --resume <session_id>
 - Path testing working
 
 ### Skills
-- `work-board-task` executing tasks correctly
-- `run-board-orchestrator` coordinating across projects
+- `loop-board-work-board-task` executing tasks correctly
+- `loop-board-run-board-orchestrator` coordinating across projects
 - Sessions spawning and completing
 
 ### Tests
@@ -669,8 +669,8 @@ Relies on session log file existence and mtime. If logs are disabled or purged, 
 - [ ] Add Configure button to `web/src/App.jsx`
 - [ ] Create `web/src/components/ProjectsConfig.jsx`
 - [ ] Add Resume button to `web/src/components/TaskDrawer.jsx`
-- [ ] Create `.claude/skills/work-board-task/SKILL.md`
-- [ ] Create `.claude/skills/run-board-orchestrator/SKILL.md`
+- [ ] Create `.claude/skills/loop-board-work-board-task/SKILL.md`
+- [ ] Create `.claude/skills/loop-board-run-board-orchestrator/SKILL.md`
 - [ ] Create `tests/db.test.js` (31 tests)
 - [ ] Create `tests/api.test.js` (22 tests)
 - [ ] Create `e2e/e2e.test.js` (6 tests)

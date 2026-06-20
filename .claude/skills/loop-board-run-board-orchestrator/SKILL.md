@@ -1,9 +1,9 @@
 ---
-name: run-board-orchestrator
-description: Coordinate multi-project work from the Loop Board. For each configured project that has backlog tasks, claim the highest-priority one, dispatch it to a project-specific Claude Code sub-session (via the work-board-task skill), wait for completion, and collect the result. Use when the user says "run the board orchestrator", "orchestrate the board", "dispatch board tasks", or "work all projects".
+name: loop-board-run-board-orchestrator
+description: Coordinate multi-project work from the Loop Board. For each configured project that has backlog tasks, claim the highest-priority one, dispatch it to a project-specific Claude Code sub-session (via the loop-board-work-board-task skill), wait for completion, and collect the result. Use when the user says "run the board orchestrator", "orchestrate the board", "dispatch board tasks", or "work all projects".
 ---
 
-# run-board-orchestrator — coordinate multi-project task execution
+# loop-board-run-board-orchestrator — coordinate multi-project task execution
 
 You run from the **loop-board repo** and dispatch tasks to **other projects'**
 Claude Code sessions, one task at a time, then collect results.
@@ -22,11 +22,11 @@ Claude Code sessions, one task at a time, then collect results.
 
 - `loop-board` is generally **not** on PATH; always invoke it as `$BOARD`.
 - Process **one task at a time** (sequential) to avoid resource conflicts.
-- **The `work-board-task` skill must be visible to sub-sessions.** A sub-session
-  runs in another repo, so it only finds the skill if it's installed at user
-  level (`~/.claude/skills/work-board-task/`) or copied into that project's
-  `.claude/skills/`. If neither is present, inline the work-board-task steps into
-  the `-p` prompt instead of naming the skill.
+- **The `loop-board-work-board-task` skill must be visible to sub-sessions.** A
+  sub-session runs in another repo, so it only finds the skill if it's installed
+  at user level (`~/.claude/skills/loop-board-work-board-task/`) or copied into
+  that project's `.claude/skills/`. If neither is present, inline the
+  loop-board-work-board-task steps into the `-p` prompt instead of naming the skill.
 
 ## 1. Fetch project configs
 
@@ -96,7 +96,7 @@ claude \
   -n "task-<id>-<slug>" \
   --permission-mode acceptEdits \
   --output-format json \
-  -p "Use the work-board-task skill to complete board task #<id> for project <label>. The loop-board CLI is at $LOOP_BOARD/cli/board.js and the board URL is $BOARD_URL."
+  -p "Use the loop-board-work-board-task skill to complete board task #<id> for project <label>. The loop-board CLI is at $LOOP_BOARD/cli/board.js and the board URL is $BOARD_URL."
 ```
 
 **Run this with the Bash tool in the background** (`run_in_background: true`) and
