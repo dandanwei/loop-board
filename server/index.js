@@ -308,11 +308,23 @@ if (existsSync(webDist)) {
 // Tests import this module to exercise the routes in-process; setting
 // BOARD_NO_LISTEN keeps them from racing for the real port.
 if (process.env.BOARD_NO_LISTEN !== '1') {
-  app.listen(PORT, () => {
+  const server = app.listen(PORT, () => {
     console.log(`Loop Board API listening on http://localhost:${PORT}`);
     if (!existsSync(webDist)) {
       console.log('UI not built yet — run `npm run dev` (HMR) or `npm run build`.');
     }
+  });
+  // A leftover server from a previous run is the usual cause here. Print an
+  // actionable message instead of an unhandled 'error' event + stack trace.
+  server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(
+        `Port ${PORT} is already in use — another Loop Board API is probably still running.\n` +
+          `Find and stop it with:  lsof -nP -iTCP:${PORT} -sTCP:LISTEN   then  kill <PID>`
+      );
+      process.exit(1);
+    }
+    throw err;
   });
 }
 
