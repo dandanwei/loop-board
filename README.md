@@ -20,12 +20,16 @@ branch, merge approved work, and post results back for you to review.
 1. **You** create a task on the board, tag it with a **project label**, write the
    task info and a **definition of done**.
 2. In that project's repo, a coding-agent session runs the **`loop-board-take-task`
-   skill**. It claims the next task for the project, creates a **new git branch**,
-   implements the work, commits, writes an answer, and moves the task to
-   **Pending Review** — recording the branch and a session title.
+   skill**. It **first merges** any branches you've already approved
+   (`ready_to_merge`) into the default branch, **then** claims the next task,
+   creates a **new git branch**, implements the work, commits, writes an answer,
+   and moves the task to **Pending Review** — recording the branch and a session
+   title.
 3. **You** review the answer (nicely rendered Markdown) on the board. If needed,
    continue the work in the same session/branch.
-4. **You** manually mark the task **Done** / **Archived**.
+4. When satisfied, click **Ready to merge**. The next time the skill runs it
+   merges that branch into the default branch and marks the task **Done** — or
+   you can mark it **Done** / **Archived** yourself.
 
 ## Quick start
 
@@ -52,22 +56,21 @@ and add a task with a clear definition of done.
 
 ## Skills
 
-The repo ships four agent skills under `.claude/skills/`, all named with a
+The repo ships three agent skills under `.claude/skills/`, all named with a
 **`loop-board-`** prefix so it's obvious they belong to this board:
 
 | Skill | What it does | Runs in | Install at user level? |
 | --- | --- | --- | --- |
-| **`loop-board-take-task`** | Claims the next backlog task, implements it on a new branch, commits, and posts the answer to **Pending Review**. | the project you're working on | **Yes** — the everyday driver |
-| **`loop-board-merge-task`** | Merges a reviewed (`ready_to_merge`) task's branch into the default branch and marks it done; aborts and bounces the task back to Pending Review if it hits a conflict it can't safely resolve. | the project you're working on | **Yes**, if you let the agent do merges |
+| **`loop-board-take-task`** | The everyday driver, running a full board cycle: **first** merges any approved (`ready_to_merge`) branches into the default branch (aborting + bouncing a task back to Pending Review on a conflict it can't safely resolve), **then** claims the next backlog task, implements it on a new branch, commits, and posts the answer to **Pending Review**. | the project you're working on | **Yes** — the everyday driver |
 | **`loop-board-work-board-task`** | Works one **specific** task by id (not "the next one") end to end — the unit the orchestrator dispatches. | a project sub-session | Only if you use the orchestrator |
 | **`loop-board-run-board-orchestrator`** | Sweeps every configured project, claims a task, and dispatches a `loop-board-work-board-task` sub-session for each. | the loop-board repo (or anywhere) | Only if you launch it from outside this repo |
 
 ### Which skills do I need?
 
 - **Working one task at a time** (the common case): install
-  **`loop-board-take-task`**, plus **`loop-board-merge-task`** if you want the
-  agent to merge approved branches. Both run inside whatever project you're in,
-  so they must be visible at the user level (`~/.claude/skills/`).
+  **`loop-board-take-task`**. It both merges approved branches and takes new
+  tasks, and runs inside whatever project you're in, so it must be visible at
+  the user level (`~/.claude/skills/`).
 - **Multi-project orchestration**: also install **`loop-board-work-board-task`**
   at the user level — the orchestrator spawns project sub-sessions that load it.
   **`loop-board-run-board-orchestrator`** only needs a user-level install if you
@@ -83,9 +86,8 @@ repo's path, because each symlink points at a skill folder that lives here:
 cd /path/to/loop-board        # the loop-board repo you cloned (NOT your other project)
 mkdir -p ~/.claude/skills
 
-# Everyday loop:
+# Everyday loop (merges approved branches, then takes the next task):
 ln -s "$(pwd)/.claude/skills/loop-board-take-task"  ~/.claude/skills/loop-board-take-task
-ln -s "$(pwd)/.claude/skills/loop-board-merge-task" ~/.claude/skills/loop-board-merge-task
 
 # Only if you orchestrate across projects:
 ln -s "$(pwd)/.claude/skills/loop-board-work-board-task"        ~/.claude/skills/loop-board-work-board-task
@@ -111,9 +113,9 @@ cp /path/to/loop-board/.board.example.json ./.board.json
 ```
 
 Now, inside that project, ask the agent to **"take a task"** (or "work the
-board"). It runs `loop-board next`, does the work on a branch, and posts back.
-Once you've reviewed it and clicked **Ready to merge**, say **"merge ready
-tasks"** to run `loop-board-merge-task`.
+board"). It first merges anything you've marked **Ready to merge**, then runs
+`loop-board next`, does the work on a branch, and posts back. You can also ask it
+to **"merge branches"** to run just the merge step — it's the same skill.
 
 > **Codex / OpenCode:** the same `loop-board` CLI and `SKILL.md` instructions
 > apply. Point the tool at the relevant `SKILL.md` (or paste its steps). Native
@@ -168,13 +170,13 @@ curl -s localhost:5151/api/tasks \
 ### Statuses
 
 `backlog → in_progress → pending_review → ready_to_merge → done`, plus `archived`.
-The `loop-board-take-task` skill moves a task to `pending_review`. After you
-review it, click **Ready to merge** to move it to `ready_to_merge`; a session
-running the `loop-board-merge-task` skill then merges that task's branch into
-`master` and marks it `done` (or, if the merge conflicts in a way it can't
-safely resolve, it aborts the
-merge and moves the task back to `pending_review` with a note for you to resolve
-manually). You can always move a task to `done`/`archived` yourself.
+The `loop-board-take-task` skill moves a task to `pending_review` when it finishes
+implementing it. After you review it, click **Ready to merge** to move it to
+`ready_to_merge`; the next time that same skill runs (its merge phase) it merges
+the branch into `master` and marks the task `done` (or, if the merge conflicts in
+a way it can't safely resolve, it aborts the merge and moves the task back to
+`pending_review` with a note for you to resolve manually). You can always move a
+task to `done`/`archived` yourself.
 
 ## Configuration
 
@@ -192,7 +194,7 @@ manually). You can always move a task to `done`/`archived` yourself.
 server/    Express API + SQLite (db.js, index.js, seed.js)
 web/       React + Vite + Tailwind UI (board, drawer, markdown editor)
 cli/       loop-board CLI (zero-dep client used by the skills)
-.claude/skills/loop-board-*/   the four agent skills (see "Skills" above)
+.claude/skills/loop-board-*/   the three agent skills (see "Skills" above)
 data/      SQLite database (gitignored, created on first run)
 ```
 
