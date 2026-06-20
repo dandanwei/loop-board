@@ -1,9 +1,9 @@
 ---
-name: take-task
+name: loop-board-take-task
 description: Pull the next task from the local Loop Board for the current project, implement it autonomously on a new git branch, then post the result back and move the task to Pending Review. Use when the user says things like "take a task", "work the board", "next board task", "pick up a task", or "run the loop". The board is a local, no-auth task queue tagged by project label.
 ---
 
-# take-task — work the Loop Board
+# loop-board-take-task — work the Loop Board
 
 You are picking up a unit of work from a **local task board** (Loop Board) and
 completing it end to end, autonomously. The board is reachable over a local,

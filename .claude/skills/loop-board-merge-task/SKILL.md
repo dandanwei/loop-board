@@ -1,9 +1,9 @@
 ---
-name: merge-task
+name: loop-board-merge-task
 description: Merge a reviewed Loop Board task's branch into the default branch (master/main). Pulls the next task in the `ready_to_merge` column for the current project, merges its branch locally, and on success marks the task done. If the merge hits a conflict it can't safely resolve, it aborts the merge and moves the task back to Pending Review with a note. Use when the user says "merge ready tasks", "merge the board", "merge task", "merge ready-to-merge", or "run the merge".
 ---
 
-# merge-task — merge reviewed Loop Board branches
+# loop-board-merge-task — merge reviewed Loop Board branches
 
 You are taking a task the human has **reviewed and approved for merge** (it sits
 in the `ready_to_merge` column) and merging its branch into the project's default
@@ -17,7 +17,7 @@ branch. The board is reached over the local, no-auth HTTP API via the
   `node <path-to-loop-board>/cli/board.js` with the same arguments.
 - Run all `loop-board` and `git` commands from the **current project's repo root**.
 - The project label resolves from `.board.json` (or `BOARD_PROJECT`), same as
-  `take-task`.
+  `loop-board-take-task`.
 
 ## 1. Pick the next ready-to-merge task
 

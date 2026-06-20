@@ -1,9 +1,9 @@
 # Loop Board
 
 A **local task board** with a light SQLite database and a no-auth local HTTP
-API — plus a **skill** that lets coding agents (Claude Code, and best-effort
-Codex / OpenCode) pull tasks for a project, implement them on a branch, and post
-the result back for you to review.
+API — plus a set of **skills** that let coding agents (Claude Code, and
+best-effort Codex / OpenCode) pull tasks for a project, implement them on a
+branch, merge approved work, and post results back for you to review.
 
 ```
   ┌─────────┐   create task    ┌──────────────┐   loop-board next   ┌───────────────┐
@@ -19,8 +19,8 @@ the result back for you to review.
 
 1. **You** create a task on the board, tag it with a **project label**, write the
    task info and a **definition of done**.
-2. In that project's repo, a coding-agent session runs the **`take-task` skill**.
-   It claims the next task for the project, creates a **new git branch**,
+2. In that project's repo, a coding-agent session runs the **`loop-board-take-task`
+   skill**. It claims the next task for the project, creates a **new git branch**,
    implements the work, commits, writes an answer, and moves the task to
    **Pending Review** — recording the branch and a session title.
 3. **You** review the answer (nicely rendered Markdown) on the board. If needed,
@@ -50,32 +50,59 @@ Either way, open the UI in your browser (`http://localhost:5173` in dev mode,
 `http://localhost:5151` in the single-port prod mode), pick or create a project,
 and add a task with a clear definition of done.
 
-## Using the skill from a project
+## Skills
 
-The skill ships **inside this repo** at `.claude/skills/take-task/`. To use it
-from **any other** project, do these two one-time setup steps: (1) make the skill
-available to Claude Code globally, and (2) tell each consuming project which board
-label it belongs to.
+The repo ships four agent skills under `.claude/skills/`, all named with a
+**`loop-board-`** prefix so it's obvious they belong to this board:
 
-**1. Make the skill global (once).** Run this **from the loop-board repo root** —
-`$(pwd)` must expand to *this* repo's path, because the symlink has to point at
-the skill folder that lives here:
+| Skill | What it does | Runs in | Install at user level? |
+| --- | --- | --- | --- |
+| **`loop-board-take-task`** | Claims the next backlog task, implements it on a new branch, commits, and posts the answer to **Pending Review**. | the project you're working on | **Yes** — the everyday driver |
+| **`loop-board-merge-task`** | Merges a reviewed (`ready_to_merge`) task's branch into the default branch and marks it done; aborts and bounces the task back to Pending Review if it hits a conflict it can't safely resolve. | the project you're working on | **Yes**, if you let the agent do merges |
+| **`loop-board-work-board-task`** | Works one **specific** task by id (not "the next one") end to end — the unit the orchestrator dispatches. | a project sub-session | Only if you use the orchestrator |
+| **`loop-board-run-board-orchestrator`** | Sweeps every configured project, claims a task, and dispatches a `loop-board-work-board-task` sub-session for each. | the loop-board repo (or anywhere) | Only if you launch it from outside this repo |
+
+### Which skills do I need?
+
+- **Working one task at a time** (the common case): install
+  **`loop-board-take-task`**, plus **`loop-board-merge-task`** if you want the
+  agent to merge approved branches. Both run inside whatever project you're in,
+  so they must be visible at the user level (`~/.claude/skills/`).
+- **Multi-project orchestration**: also install **`loop-board-work-board-task`**
+  at the user level — the orchestrator spawns project sub-sessions that load it.
+  **`loop-board-run-board-orchestrator`** only needs a user-level install if you
+  start it from a directory *other than* this repo; run it from here and the
+  repo-local copy is discovered automatically.
+
+### 1. Install the skills you need (once)
+
+Run this **from the loop-board repo root** — `$(pwd)` must expand to *this*
+repo's path, because each symlink points at a skill folder that lives here:
 
 ```bash
 cd /path/to/loop-board        # the loop-board repo you cloned (NOT your other project)
 mkdir -p ~/.claude/skills
-ln -s "$(pwd)/.claude/skills/take-task" ~/.claude/skills/take-task
 
-# Sanity-check: the link should resolve to the loop-board repo above
-ls -l ~/.claude/skills/take-task
+# Everyday loop:
+ln -s "$(pwd)/.claude/skills/loop-board-take-task"  ~/.claude/skills/loop-board-take-task
+ln -s "$(pwd)/.claude/skills/loop-board-merge-task" ~/.claude/skills/loop-board-merge-task
+
+# Only if you orchestrate across projects:
+ln -s "$(pwd)/.claude/skills/loop-board-work-board-task"        ~/.claude/skills/loop-board-work-board-task
+ln -s "$(pwd)/.claude/skills/loop-board-run-board-orchestrator" ~/.claude/skills/loop-board-run-board-orchestrator
+
+# Sanity-check one of them resolves back into this repo:
+ls -l ~/.claude/skills/loop-board-take-task
 ```
 
-(If you prefer not to symlink, you can instead copy the folder, but a symlink
-keeps the skill in sync as this repo updates.)
+A **symlink** keeps the skill in sync as this repo updates (and follows whatever
+branch you have checked out). You can **copy** the folders instead, but copies
+drift from the repo and you'll have to re-copy after each change.
 
-**2. Point each consuming project at the board.** In the repo root of the
-*project you want to work on*, add a `.board.json`. Its `project` value must match
-the label you gave the task on the board:
+### 2. Point each project at the board
+
+In the repo root of the *project you want to work on*, add a `.board.json`. Its
+`project` value must match the label you gave the task on the board:
 
 ```bash
 # Run from your other project's repo root:
@@ -84,12 +111,14 @@ cp /path/to/loop-board/.board.example.json ./.board.json
 ```
 
 Now, inside that project, ask the agent to **"take a task"** (or "work the
-board"). It will run `loop-board next`, do the work on a branch, and post back.
+board"). It runs `loop-board next`, does the work on a branch, and posts back.
+Once you've reviewed it and clicked **Ready to merge**, say **"merge ready
+tasks"** to run `loop-board-merge-task`.
 
 > **Codex / OpenCode:** the same `loop-board` CLI and `SKILL.md` instructions
-> apply. Point the tool at `SKILL.md` (or paste its steps). Native session
-> rename is tool-dependent; the board's session title is always the canonical
-> record.
+> apply. Point the tool at the relevant `SKILL.md` (or paste its steps). Native
+> session rename is tool-dependent; the board's session title is always the
+> canonical record.
 
 ## The `loop-board` CLI
 
@@ -139,10 +168,11 @@ curl -s localhost:5151/api/tasks \
 ### Statuses
 
 `backlog → in_progress → pending_review → ready_to_merge → done`, plus `archived`.
-The `take-task` skill moves a task to `pending_review`. After you review it, click
-**Ready to merge** to move it to `ready_to_merge`; a session running the
-`merge-task` skill then merges that task's branch into `master` and marks it
-`done` (or, if the merge conflicts in a way it can't safely resolve, it aborts the
+The `loop-board-take-task` skill moves a task to `pending_review`. After you
+review it, click **Ready to merge** to move it to `ready_to_merge`; a session
+running the `loop-board-merge-task` skill then merges that task's branch into
+`master` and marks it `done` (or, if the merge conflicts in a way it can't
+safely resolve, it aborts the
 merge and moves the task back to `pending_review` with a note for you to resolve
 manually). You can always move a task to `done`/`archived` yourself.
 
@@ -161,8 +191,8 @@ manually). You can always move a task to `done`/`archived` yourself.
 ```
 server/    Express API + SQLite (db.js, index.js, seed.js)
 web/       React + Vite + Tailwind UI (board, drawer, markdown editor)
-cli/       loop-board CLI (zero-dep client used by the skill)
-.claude/skills/take-task/   the agent skill
+cli/       loop-board CLI (zero-dep client used by the skills)
+.claude/skills/loop-board-*/   the four agent skills (see "Skills" above)
 data/      SQLite database (gitignored, created on first run)
 ```
 
