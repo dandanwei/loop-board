@@ -61,6 +61,12 @@ db.exec(`
     updated_at TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS settings (
+    key        TEXT NOT NULL PRIMARY KEY,
+    value      TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
   CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks (project);
   CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks (status);
   CREATE INDEX IF NOT EXISTS idx_events_task ON task_events (task_id);
@@ -268,4 +274,61 @@ export function deleteProjectConfig(project) {
     db.prepare(`DELETE FROM projects_config WHERE project = ?`).run(project)
       .changes > 0
   );
+}
+
+// ---- settings ---------------------------------------------------------------
+// A tiny key/value store for board-wide preferences. Values are kept as text
+// and coerced on the way out so the table stays generic. Currently holds the
+// "stale" threshold: how many minutes a task may sit in_progress before the
+// board flags it as running long.
+
+export const SETTINGS_DEFAULTS = {
+  // Tasks in_progress longer than this many minutes are highlighted as stale.
+  stale_threshold_minutes: 30,
+};
+
+const stmtGetSetting = db.prepare(`SELECT value FROM settings WHERE key = ?`);
+const stmtUpsertSetting = db.prepare(`
+  INSERT INTO settings (key, value, updated_at)
+  VALUES (@key, @value, @updated_at)
+  ON CONFLICT(key) DO UPDATE SET
+    value = excluded.value,
+    updated_at = excluded.updated_at
+`);
+
+// Coerce a stored (string) setting back to the type of its default.
+function coerceSetting(key, raw) {
+  const def = SETTINGS_DEFAULTS[key];
+  if (raw == null) return def;
+  if (typeof def === 'number') {
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : def;
+  }
+  return raw;
+}
+
+export function getSettings() {
+  const out = { ...SETTINGS_DEFAULTS };
+  for (const key of Object.keys(SETTINGS_DEFAULTS)) {
+    const row = stmtGetSetting.get(key);
+    if (row) out[key] = coerceSetting(key, row.value);
+  }
+  return out;
+}
+
+// Apply a partial patch of known settings, validating values. Throws on a bad
+// value so the API can return a 400. Returns the full, coerced settings object.
+export function updateSettings(patch = {}) {
+  const ts = now();
+  for (const [key, value] of Object.entries(patch)) {
+    if (!(key in SETTINGS_DEFAULTS)) continue; // ignore unknown keys
+    if (key === 'stale_threshold_minutes') {
+      const n = Number(value);
+      if (!Number.isFinite(n) || n <= 0) {
+        throw new Error('stale_threshold_minutes must be a positive number');
+      }
+    }
+    stmtUpsertSetting.run({ key, value: String(value), updated_at: ts });
+  }
+  return getSettings();
 }

@@ -22,12 +22,16 @@ const {
   getProjectConfig,
   upsertProjectConfig,
   deleteProjectConfig,
+  getSettings,
+  updateSettings,
+  SETTINGS_DEFAULTS,
 } = await import('../server/db.js');
 
 beforeEach(() => {
   db.exec('DELETE FROM tasks');
   db.exec('DELETE FROM task_events');
   db.exec('DELETE FROM projects_config');
+  db.exec('DELETE FROM settings');
 });
 
 describe('tasks CRUD', () => {
@@ -260,5 +264,31 @@ describe('projects config', () => {
   it('rejects an empty project or path', () => {
     expect(() => upsertProjectConfig({ project: '', path: '/x' })).toThrow();
     expect(() => upsertProjectConfig({ project: 'x', path: '' })).toThrow();
+  });
+});
+
+describe('settings', () => {
+  it('returns defaults when nothing is stored', () => {
+    expect(getSettings()).toEqual(SETTINGS_DEFAULTS);
+    expect(getSettings().stale_threshold_minutes).toBe(30);
+  });
+
+  it('persists and coerces the stale threshold to a number', () => {
+    const out = updateSettings({ stale_threshold_minutes: 45 });
+    expect(out.stale_threshold_minutes).toBe(45);
+    // A fresh read coerces the stored text back to a number.
+    expect(getSettings().stale_threshold_minutes).toBe(45);
+  });
+
+  it('rejects a non-positive or non-numeric threshold', () => {
+    expect(() => updateSettings({ stale_threshold_minutes: 0 })).toThrow();
+    expect(() => updateSettings({ stale_threshold_minutes: -5 })).toThrow();
+    expect(() => updateSettings({ stale_threshold_minutes: 'abc' })).toThrow();
+  });
+
+  it('ignores unknown keys', () => {
+    const out = updateSettings({ bogus: 'nope' });
+    expect(out).not.toHaveProperty('bogus');
+    expect(out).toEqual(SETTINGS_DEFAULTS);
   });
 });

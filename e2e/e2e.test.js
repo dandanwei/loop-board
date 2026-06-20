@@ -31,6 +31,7 @@ beforeEach(() => {
   db.exec('DELETE FROM tasks');
   db.exec('DELETE FROM task_events');
   db.exec('DELETE FROM projects_config');
+  db.exec('DELETE FROM settings');
 });
 
 async function req(method, path, body) {
@@ -101,6 +102,27 @@ describe('projects config lifecycle', () => {
     expect(del.status).toBe(204);
     const after = await req('GET', '/api/projects-config');
     expect(after.data).toEqual([]);
+  });
+});
+
+describe('settings lifecycle', () => {
+  it('reads defaults, updates, and persists the stale threshold', async () => {
+    const initial = await req('GET', '/api/settings');
+    expect(initial.data.stale_threshold_minutes).toBe(30);
+
+    const updated = await req('PATCH', '/api/settings', {
+      stale_threshold_minutes: 90,
+    });
+    expect(updated.status).toBe(200);
+    expect(updated.data.stale_threshold_minutes).toBe(90);
+
+    const again = await req('GET', '/api/settings');
+    expect(again.data.stale_threshold_minutes).toBe(90);
+
+    const bad = await req('PATCH', '/api/settings', {
+      stale_threshold_minutes: 'oops',
+    });
+    expect(bad.status).toBe(400);
   });
 });
 

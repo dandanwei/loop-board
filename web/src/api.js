@@ -51,4 +51,9 @@ export const api = {
     req(`/projects-config/${encodeURIComponent(project)}`, { method: 'DELETE' }),
   testPath: (path) =>
     req('/test-path', { method: 'POST', body: JSON.stringify({ path }) }),
+
+  // Board-wide settings (e.g. the stale-task threshold).
+  getSettings: () => req('/settings'),
+  updateSettings: (body) =>
+    req('/settings', { method: 'PATCH', body: JSON.stringify(body) }),
 };

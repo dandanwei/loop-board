@@ -1,11 +1,24 @@
-import React from 'react';
-import { COLUMNS } from '../constants.js';
+import React, { useEffect, useState } from 'react';
+import { COLUMNS, DEFAULT_STALE_THRESHOLD_MIN } from '../constants.js';
 import TaskCard from './TaskCard.jsx';
 
-export default function Board({ tasks, includeArchived, onOpen }) {
+export default function Board({
+  tasks,
+  includeArchived,
+  onOpen,
+  staleThresholdMinutes = DEFAULT_STALE_THRESHOLD_MIN,
+}) {
   const columns = includeArchived
     ? [...COLUMNS, { key: 'archived', label: 'Archived', accent: 'border-slate-300' }]
     : COLUMNS;
+
+  // Tick once a minute so elapsed times and the stale highlight advance even
+  // when the task list itself hasn't changed.
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNowMs(Date.now()), 30000);
+    return () => clearInterval(id);
+  }, []);
 
   const byStatus = (status) => tasks.filter((t) => t.status === status);
 
@@ -28,7 +41,13 @@ export default function Board({ tasks, includeArchived, onOpen }) {
             </div>
             <div className="thin-scroll flex flex-1 flex-col gap-2 overflow-y-auto p-2">
               {items.map((t) => (
-                <TaskCard key={t.id} task={t} onOpen={() => onOpen(t.id)} />
+                <TaskCard
+                  key={t.id}
+                  task={t}
+                  onOpen={() => onOpen(t.id)}
+                  staleThresholdMinutes={staleThresholdMinutes}
+                  nowMs={nowMs}
+                />
               ))}
               {items.length === 0 && (
                 <p className="px-1 py-6 text-center text-xs text-slate-400">

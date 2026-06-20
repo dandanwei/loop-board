@@ -18,6 +18,7 @@ beforeEach(() => {
   db.exec('DELETE FROM tasks');
   db.exec('DELETE FROM task_events');
   db.exec('DELETE FROM projects_config');
+  db.exec('DELETE FROM settings');
 });
 
 describe('health', () => {
@@ -96,6 +97,16 @@ describe('tasks endpoints', () => {
       .post(`/api/tasks/${created.body.id}/status`)
       .send({ status: 'nope' });
     expect(bad.status).toBe(400);
+  });
+
+  it('stamps claimed_at when moved to in_progress manually', async () => {
+    const created = await agent.post('/api/tasks').send({ title: 'a', project: 'p' });
+    expect(created.body.claimed_at).toBeFalsy();
+    const res = await agent
+      .post(`/api/tasks/${created.body.id}/status`)
+      .send({ status: 'in_progress' });
+    expect(res.body.status).toBe('in_progress');
+    expect(res.body.claimed_at).toBeTruthy();
   });
 
   it('POST /api/tasks/:id/comment appends a comment', async () => {
@@ -181,6 +192,32 @@ describe('projects-config endpoints', () => {
     expect(del.status).toBe(204);
     const missing = await agent.delete('/api/projects-config/app');
     expect(missing.status).toBe(404);
+  });
+});
+
+describe('settings endpoints', () => {
+  it('GET /api/settings returns defaults', async () => {
+    const res = await agent.get('/api/settings');
+    expect(res.status).toBe(200);
+    expect(res.body.stale_threshold_minutes).toBe(30);
+  });
+
+  it('PATCH /api/settings updates the stale threshold', async () => {
+    const res = await agent
+      .patch('/api/settings')
+      .send({ stale_threshold_minutes: 60 });
+    expect(res.status).toBe(200);
+    expect(res.body.stale_threshold_minutes).toBe(60);
+    const again = await agent.get('/api/settings');
+    expect(again.body.stale_threshold_minutes).toBe(60);
+  });
+
+  it('PATCH /api/settings rejects an invalid threshold', async () => {
+    const res = await agent
+      .patch('/api/settings')
+      .send({ stale_threshold_minutes: -1 });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/positive/);
   });
 });
 
