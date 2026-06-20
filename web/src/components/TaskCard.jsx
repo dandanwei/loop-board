@@ -4,6 +4,7 @@ import {
   fmtDate,
   fmtDuration,
   inProgressSince,
+  projectBadgeClasses,
   DEFAULT_STALE_THRESHOLD_MIN,
 } from '../constants.js';
 
@@ -33,7 +34,7 @@ export default function TaskCard({
       }`}
     >
       <div className="mb-1.5 flex items-center gap-1.5">
-        <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium text-slate-600">
+        <span className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${projectBadgeClasses(task.project)}`}>
           {task.project}
         </span>
         <span className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${prio.cls}`}>

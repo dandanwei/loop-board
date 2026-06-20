@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../api.js';
+import { projectBadgeClasses } from '../constants.js';
 
 // Shows a small badge after the user clicks "Test" on a path.
 function PathStatus({ result }) {
@@ -183,7 +184,7 @@ export default function ProjectsConfig({
             <ul className="divide-y divide-slate-100 rounded-md border border-slate-200">
               {configs.map((c) => (
                 <li key={c.project} className="flex items-center gap-3 px-3 py-2">
-                  <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-600">
+                  <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${projectBadgeClasses(c.project)}`}>
                     {c.project}
                   </span>
                   <span className="flex-1 truncate font-mono text-xs text-slate-600">
