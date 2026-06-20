@@ -27,6 +27,76 @@ function CopyButton({ value }) {
   );
 }
 
+// Builds a copy-paste `claude --resume` command. The repo path isn't on the
+// task, so look it up from the project's configured path mapping.
+function ResumeButton({ session_id, project }) {
+  const [showCommand, setShowCommand] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [projectPath, setProjectPath] = useState('');
+
+  useEffect(() => {
+    let alive = true;
+    api
+      .getProjectsConfig()
+      .then((cfgs) => {
+        if (!alive) return;
+        const match = cfgs.find((c) => c.project === project);
+        setProjectPath(match ? match.path : '');
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [project]);
+
+  if (!session_id) return null;
+
+  const resume = `claude --resume ${session_id}`;
+  const fullCommand = projectPath ? `cd ${projectPath} && ${resume}` : resume;
+
+  return (
+    <div className="pt-1">
+      {showCommand ? (
+        <div className="rounded bg-white p-2">
+          <code className="block break-all text-[11px] text-slate-600">
+            {fullCommand}
+          </code>
+          {!projectPath && (
+            <p className="mt-1 text-[11px] text-amber-600">
+              No path configured for “{project}” — run from the repo directory.
+            </p>
+          )}
+          <div className="mt-2 flex gap-2">
+            <button
+              onClick={() => {
+                navigator.clipboard?.writeText(fullCommand);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 1200);
+              }}
+              className="rounded border border-slate-200 px-1.5 py-0.5 text-[11px] text-slate-500 hover:bg-slate-50"
+            >
+              {copied ? '✓ copied' : 'copy command'}
+            </button>
+            <button
+              onClick={() => setShowCommand(false)}
+              className="rounded border border-slate-200 px-1.5 py-0.5 text-[11px] text-slate-500 hover:bg-slate-50"
+            >
+              hide
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          onClick={() => setShowCommand(true)}
+          className="rounded border border-slate-200 px-1.5 py-0.5 text-[11px] text-slate-500 hover:bg-slate-50"
+        >
+          🖥 Resume session
+        </button>
+      )}
+    </div>
+  );
+}
+
 function MarkdownField({ value, onSave, placeholder }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value || '');
@@ -226,6 +296,12 @@ export default function TaskDrawer({ id, onClose, onChanged }) {
                   <span className="w-16 shrink-0 text-slate-400">agent</span>
                   <span className="flex-1 truncate">{task.agent_tool}</span>
                 </div>
+              )}
+              {task.session_id && (
+                <ResumeButton
+                  session_id={task.session_id}
+                  project={task.project}
+                />
               )}
             </div>
           )}

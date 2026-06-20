@@ -3,6 +3,7 @@ import { api } from './api.js';
 import Board from './components/Board.jsx';
 import TaskDrawer from './components/TaskDrawer.jsx';
 import NewTaskModal from './components/NewTaskModal.jsx';
+import ProjectsConfig from './components/ProjectsConfig.jsx';
 
 export default function App() {
   const [tasks, setTasks] = useState([]);
@@ -11,6 +12,7 @@ export default function App() {
   const [includeArchived, setIncludeArchived] = useState(false);
   const [selectedId, setSelectedId] = useState(null);
   const [showNew, setShowNew] = useState(false);
+  const [showConfig, setShowConfig] = useState(false);
   const [error, setError] = useState('');
 
   const refresh = useCallback(async () => {
@@ -82,6 +84,12 @@ export default function App() {
             Refresh
           </button>
           <button
+            onClick={() => setShowConfig(true)}
+            className="rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50"
+          >
+            ⚙ Configure
+          </button>
+          <button
             onClick={() => setShowNew(true)}
             className="rounded-md bg-ink px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700"
           >
@@ -113,6 +121,13 @@ export default function App() {
             setShowNew(false);
             refresh();
           }}
+        />
+      )}
+
+      {showConfig && (
+        <ProjectsConfig
+          onClose={() => setShowConfig(false)}
+          onChanged={refresh}
         />
       )}
     </div>

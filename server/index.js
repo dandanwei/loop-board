@@ -1,6 +1,6 @@
 import express from 'express';
 import cors from 'cors';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { dirname, extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,6 +15,10 @@ import {
   updateTask,
   deleteTask,
   claimNext,
+  listProjectConfigs,
+  getProjectConfig,
+  upsertProjectConfig,
+  deleteProjectConfig,
 } from './db.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -239,6 +243,56 @@ api.post(
   })
 );
 
+// ---- projects config --------------------------------------------------------
+// The orchestrator reads these label→path mappings to know which repo to cd
+// into before dispatching a task to a project sub-session.
+
+api.get('/projects-config', wrap((_req, res) => res.json(listProjectConfigs())));
+
+api.post(
+  '/projects-config',
+  wrap((req, res) => {
+    const { project, path } = req.body || {};
+    if (!project || !path) {
+      return res.status(400).json({ error: 'project and path are required' });
+    }
+    const existed = !!getProjectConfig(String(project).trim());
+    const row = upsertProjectConfig({ project, path });
+    res.status(existed ? 200 : 201).json(row);
+  })
+);
+
+api.delete(
+  '/projects-config/:project',
+  wrap((req, res) => {
+    const ok = deleteProjectConfig(req.params.project);
+    if (!ok) return res.status(404).json({ error: 'config not found' });
+    res.status(204).end();
+  })
+);
+
+// Validate that a path exists and is a directory, so the config UI can warn
+// before the orchestrator tries to cd into a bad path.
+api.post(
+  '/test-path',
+  wrap((req, res) => {
+    const { path } = req.body || {};
+    if (!path || typeof path !== 'string') {
+      return res.status(400).json({ error: 'path is required' });
+    }
+    try {
+      const st = statSync(path);
+      res.json({
+        exists: true,
+        isDirectory: st.isDirectory(),
+        isGitRepo: existsSync(join(path, '.git')),
+      });
+    } catch (err) {
+      res.json({ exists: false, error: err.code || err.message });
+    }
+  })
+);
+
 app.use('/api', api);
 
 // Serve the built UI in production. In dev, Vite serves the UI itself.
@@ -251,9 +305,15 @@ if (existsSync(webDist)) {
   });
 }
 
-app.listen(PORT, () => {
-  console.log(`Loop Board API listening on http://localhost:${PORT}`);
-  if (!existsSync(webDist)) {
-    console.log('UI not built yet — run `npm run dev` (HMR) or `npm run build`.');
-  }
-});
+// Tests import this module to exercise the routes in-process; setting
+// BOARD_NO_LISTEN keeps them from racing for the real port.
+if (process.env.BOARD_NO_LISTEN !== '1') {
+  app.listen(PORT, () => {
+    console.log(`Loop Board API listening on http://localhost:${PORT}`);
+    if (!existsSync(webDist)) {
+      console.log('UI not built yet — run `npm run dev` (HMR) or `npm run build`.');
+    }
+  });
+}
+
+export { app };

@@ -42,4 +42,13 @@ export const api = {
       body: JSON.stringify({ body, author: 'human' }),
     }),
   deleteTask: (id) => req(`/tasks/${id}`, { method: 'DELETE' }),
+
+  // Project label → repo path mappings used by the orchestrator.
+  getProjectsConfig: () => req('/projects-config'),
+  createProjectConfig: (body) =>
+    req('/projects-config', { method: 'POST', body: JSON.stringify(body) }),
+  deleteProjectConfig: (project) =>
+    req(`/projects-config/${encodeURIComponent(project)}`, { method: 'DELETE' }),
+  testPath: (path) =>
+    req('/test-path', { method: 'POST', body: JSON.stringify({ path }) }),
 };

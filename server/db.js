@@ -53,6 +53,13 @@ db.exec(`
     FOREIGN KEY (task_id) REFERENCES tasks (id) ON DELETE CASCADE
   );
 
+  CREATE TABLE IF NOT EXISTS projects_config (
+    project    TEXT NOT NULL PRIMARY KEY,
+    path       TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
   CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks (project);
   CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks (status);
   CREATE INDEX IF NOT EXISTS idx_events_task ON task_events (task_id);
@@ -212,3 +219,52 @@ export const claimNext = db.transaction((project, meta = {}) => {
   });
   return getTask(row.id, true);
 });
+
+// ---- projects config --------------------------------------------------------
+// Maps a project label to an absolute filesystem path, so the orchestrator can
+// cd into the right repo before dispatching a task to a sub-session.
+
+const stmtGetProjectConfig = db.prepare(
+  `SELECT * FROM projects_config WHERE project = ?`
+);
+
+const stmtUpsertProjectConfig = db.prepare(`
+  INSERT INTO projects_config (project, path, created_at, updated_at)
+  VALUES (@project, @path, @created_at, @updated_at)
+  ON CONFLICT(project) DO UPDATE SET
+    path = excluded.path,
+    updated_at = excluded.updated_at
+`);
+
+export function listProjectConfigs() {
+  return db
+    .prepare(`SELECT * FROM projects_config ORDER BY project ASC`)
+    .all();
+}
+
+export function getProjectConfig(project) {
+  return stmtGetProjectConfig.get(project) || null;
+}
+
+export function upsertProjectConfig({ project, path }) {
+  const label = String(project || '').trim();
+  const p = String(path || '').trim();
+  if (!label) throw new Error('project is required');
+  if (!p) throw new Error('path is required');
+  const existing = getProjectConfig(label);
+  const ts = now();
+  stmtUpsertProjectConfig.run({
+    project: label,
+    path: p,
+    created_at: existing ? existing.created_at : ts,
+    updated_at: ts,
+  });
+  return getProjectConfig(label);
+}
+
+export function deleteProjectConfig(project) {
+  return (
+    db.prepare(`DELETE FROM projects_config WHERE project = ?`).run(project)
+      .changes > 0
+  );
+}
