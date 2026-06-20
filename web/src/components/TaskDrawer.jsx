@@ -7,6 +7,7 @@ const ALL_STATUSES = [
   'backlog',
   'in_progress',
   'pending_review',
+  'ready_to_merge',
   'done',
   'archived',
 ];
@@ -430,6 +431,14 @@ export default function TaskDrawer({ id, onClose, onChanged }) {
             Delete
           </button>
           <div className="flex gap-2">
+            {task.status === 'pending_review' && (
+              <button
+                onClick={() => mutate(() => api.setStatus(id, 'ready_to_merge'))}
+                className="rounded-md bg-cyan-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-cyan-700"
+              >
+                Ready to merge
+              </button>
+            )}
             {task.status !== 'archived' && (
               <button
                 onClick={() => mutate(() => api.setStatus(id, 'archived'))}

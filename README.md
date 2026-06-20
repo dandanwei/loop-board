@@ -138,8 +138,13 @@ curl -s localhost:5151/api/tasks \
 
 ### Statuses
 
-`backlog → in_progress → pending_review → done`, plus `archived`. The skill moves
-tasks to `pending_review`; you move them to `done`/`archived`.
+`backlog → in_progress → pending_review → ready_to_merge → done`, plus `archived`.
+The `take-task` skill moves a task to `pending_review`. After you review it, click
+**Ready to merge** to move it to `ready_to_merge`; a session running the
+`merge-task` skill then merges that task's branch into `master` and marks it
+`done` (or, if the merge conflicts in a way it can't safely resolve, it aborts the
+merge and moves the task back to `pending_review` with a note for you to resolve
+manually). You can always move a task to `done`/`archived` yourself.
 
 ## Configuration
 

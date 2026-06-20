@@ -2,6 +2,7 @@ export const COLUMNS = [
   { key: 'backlog', label: 'Backlog', accent: 'border-slate-300' },
   { key: 'in_progress', label: 'In Progress', accent: 'border-amber-400' },
   { key: 'pending_review', label: 'Pending Review', accent: 'border-violet-400' },
+  { key: 'ready_to_merge', label: 'Ready to Merge', accent: 'border-cyan-400' },
   { key: 'done', label: 'Done', accent: 'border-emerald-400' },
 ];
 
@@ -9,6 +10,7 @@ export const STATUS_LABEL = {
   backlog: 'Backlog',
   in_progress: 'In Progress',
   pending_review: 'Pending Review',
+  ready_to_merge: 'Ready to Merge',
   done: 'Done',
   archived: 'Archived',
 };

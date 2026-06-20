@@ -18,6 +18,7 @@ export const STATUSES = [
   'backlog',
   'in_progress',
   'pending_review',
+  'ready_to_merge',
   'done',
   'archived',
 ];
