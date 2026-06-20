@@ -176,6 +176,15 @@ export default function TaskDrawer({ id, onClose, onChanged }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
+  // Close the drawer on Escape, matching the backdrop-click behaviour.
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape' && !e.isComposing) onClose?.();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [onClose]);
+
   const mutate = async (fn) => {
     await fn();
     await load();
