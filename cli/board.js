@@ -10,6 +10,7 @@
 //   default: http://localhost:5151
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { execFileSync } from 'node:child_process';
 
 const args = process.argv.slice(2);
 const cmd = args[0];
@@ -112,6 +113,54 @@ function fileOrInline(flagName) {
 }
 
 const PRIORITY_LABEL = { 1: 'high', 2: 'medium', 3: 'low' };
+
+// ---- git helpers (used by `cleanup-branches`) -------------------------------
+// Run git in the current working directory. Returns trimmed stdout, or throws
+// with git's stderr attached so callers can decide what to do.
+function git(...gitArgs) {
+  try {
+    return execFileSync('git', gitArgs, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  } catch (err) {
+    const stderr = err.stderr ? String(err.stderr).trim() : err.message;
+    const e = new Error(stderr);
+    e.gitArgs = gitArgs;
+    throw e;
+  }
+}
+
+// One short branch name per line → array (filtering out blanks).
+function gitBranchNames(extraArgs) {
+  return git('branch', ...extraArgs, '--format=%(refname:short)')
+    .split('\n')
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+// Pick the repo's default branch: --default flag wins, else prefer main/master
+// if they exist, else fall back to the most reasonable guess.
+function resolveDefaultBranch(all) {
+  if (typeof flags.default === 'string') return flags.default;
+  for (const name of ['main', 'master']) {
+    if (all.includes(name)) return name;
+  }
+  return all.includes('master') ? 'master' : all[0];
+}
+
+// Best-effort board lookup so cleanup can annotate branches with their task's
+// id + status. Never fatal: cleanup is a git operation and must work even when
+// the board is down or `--no-board` is passed.
+async function fetchTasksForCleanup() {
+  if (flags['no-board'] || !PROJECT) return [];
+  try {
+    const params = new URLSearchParams({ includeArchived: 'true' });
+    if (PROJECT) params.set('project', PROJECT);
+    const res = await fetch(`${BASE}/api/tasks?${params}`);
+    if (!res.ok) return [];
+    return await res.json();
+  } catch {
+    return [];
+  }
+}
 
 function printTask(task, { full = false } = {}) {
   if (asJson) {
@@ -264,6 +313,127 @@ async function main() {
       return;
     }
 
+    case 'cleanup-branches':
+    case 'prune': {
+      // Remove local branches whose work is already merged into the default
+      // branch — i.e. branches for completed/merged tasks. We rely on git's own
+      // `branch -d` (merged-only delete) as the safety net: an unmerged branch
+      // is never deleted, even if its board task looks "done".
+      let all;
+      try {
+        all = gitBranchNames([]);
+      } catch (err) {
+        die(`Not a git repository (or git failed): ${err.message}`);
+      }
+      const current = git('rev-parse', '--abbrev-ref', 'HEAD');
+      const def = resolveDefaultBranch(all);
+      if (!all.includes(def)) {
+        die(`Default branch "${def}" not found. Pass --default <branch>.`);
+      }
+      const merged = new Set(gitBranchNames(['--merged', def]));
+
+      // Annotate each branch with its board task, if any (best-effort).
+      const tasks = await fetchTasksForCleanup();
+      const byBranch = new Map();
+      for (const t of tasks) {
+        if (t.branch) byBranch.set(t.branch, t);
+        const m = /^task\/(\d+)-/.exec(t.branch || '');
+        if (m) byBranch.set(`__id_${m[1]}`, t);
+      }
+      const taskFor = (branch) => {
+        if (byBranch.has(branch)) return byBranch.get(branch);
+        const m = /^task\/(\d+)-/.exec(branch);
+        return m && byBranch.has(`__id_${m[1]}`) ? byBranch.get(`__id_${m[1]}`) : null;
+      };
+      const annotate = (branch) => {
+        const t = taskFor(branch);
+        return t ? `task #${t.id}, ${t.status}` : 'no board task';
+      };
+
+      // Candidates: merged, and neither the default nor the current branch.
+      const candidates = all.filter((b) => b !== def && b !== current && merged.has(b));
+      const protectedKept = all.filter((b) => b === def || b === current);
+      const unmergedKept = all.filter((b) => b !== def && b !== current && !merged.has(b));
+
+      const apply = flags.apply === true || flags.yes === true;
+      const deleted = [];
+      const failed = [];
+      if (apply) {
+        for (const b of candidates) {
+          try {
+            git('branch', '-d', b);
+            deleted.push(b);
+          } catch (err) {
+            failed.push({ branch: b, error: err.message });
+          }
+        }
+      }
+
+      if (asJson) {
+        console.log(
+          JSON.stringify(
+            {
+              default: def,
+              current,
+              applied: apply,
+              candidates: candidates.map((b) => ({ branch: b, task: taskFor(b) || null })),
+              deleted,
+              failed,
+              remaining: all
+                .filter((b) => !deleted.includes(b))
+                .map((b) => ({
+                  branch: b,
+                  task: taskFor(b) || null,
+                  isDefault: b === def,
+                  isCurrent: b === current,
+                  merged: merged.has(b),
+                })),
+            },
+            null,
+            2
+          )
+        );
+        return;
+      }
+
+      console.log(`Default branch: ${def}   Current: ${current}\n`);
+
+      if (!candidates.length) {
+        console.log('No merged branches to clean up. ✔\n');
+      } else {
+        console.log(
+          apply
+            ? `Deleted ${deleted.length} merged branch(es):`
+            : `Merged branches eligible for cleanup (${candidates.length}):`
+        );
+        for (const b of candidates) {
+          const status = apply && failed.find((f) => f.branch === b) ? ' — FAILED' : '';
+          console.log(`  ${b}  (${annotate(b)})${status}`);
+        }
+        if (failed.length) {
+          console.log('\nSome deletions failed:');
+          for (const f of failed) console.log(`  ${f.branch}: ${f.error}`);
+        }
+        if (!apply) {
+          console.log('\nDry run — nothing deleted. Re-run with --apply to delete them.');
+        }
+        console.log('');
+      }
+
+      // Always show what's (still) there, so the human can eyeball the result.
+      const remaining = all.filter((b) => !deleted.includes(b));
+      console.log('Remaining branches:');
+      for (const b of remaining) {
+        const marks = [];
+        if (b === current) marks.push('current');
+        if (b === def) marks.push('default');
+        if (b !== def && b !== current && !merged.has(b)) marks.push('not merged — kept');
+        const suffix = marks.length ? `  [${marks.join(', ')}]` : '';
+        console.log(`  ${b}  (${annotate(b)})${suffix}`);
+      }
+      return;
+    }
+
     case undefined:
     case 'help':
     case '--help':
@@ -297,6 +467,10 @@ Commands:
         [--status pending_review]
   comment <id> --body "..."         Add a comment/event
   status <id> <status>              Move a task (backlog|in_progress|pending_review|done|archived)
+  cleanup-branches [--apply]        Delete local branches already merged into the default
+        [--default <branch>]        branch (i.e. completed/merged tasks); dry-run unless
+        [--no-board]                --apply. Always prints the remaining branches. Annotates
+                                    each branch with its board task unless --no-board.
 
 Add --json to most commands for machine-readable output.
 Add --tool <name> (or BOARD_AGENT_TOOL) to record which agent acted.`);
