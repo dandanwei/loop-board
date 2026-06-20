@@ -105,12 +105,22 @@ loop-board answer <id> \
   --answer-file /tmp/loop-answer-<id>.md \
   --branch "$(git rev-parse --abbrev-ref HEAD)" \
   --session-title "<concise title for this task>" \
+  --session-id "$CLAUDE_CODE_SESSION_ID" \
   --status pending_review \
   --tool claude-code
 ```
 
-This attaches the answer + branch + session title and moves the task to
-**Pending Review** in one call.
+This attaches the answer + branch + session title + session id and moves the
+task to **Pending Review** in one call.
+
+**Always pass `--session-id`** — it's what lets the human resume *this exact
+session* later from the board, which renders a one-line
+`cd <repo> && git checkout <branch> && claude --resume <id>` command from it. In
+Claude Code the resumable id lives in the `$CLAUDE_CODE_SESSION_ID` environment
+variable, so pass it verbatim as shown. If that variable is empty (e.g. a
+different tool), omit the flag rather than passing a bogus value — the board
+simply won't show a resume command. Other tools should pass their own resumable
+session id here if they have one.
 
 ## 8. Rename the session
 
