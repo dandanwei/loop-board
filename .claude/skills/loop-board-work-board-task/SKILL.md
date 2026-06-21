@@ -76,24 +76,43 @@ Write a Markdown answer to a temp file (e.g. `/tmp/loop-answer-<id>.md`):
 
 ```markdown
 ## Summary
-<2-4 sentences: what you did and why>
+<3-5 sentences. Lead with the outcome, then what you did and why, and name the
+single most important decision or trade-off the reviewer should know about. This
+is the one section guaranteed to be read — make it stand on its own.>
 
-## Changes
-- `path/to/file` — what changed and why
+## Decisions & trade-offs
+Choices the reviewer should sanity-check: alternatives you considered and ruled
+out, ambiguities you resolved, anything you'd flag in a PR. Omit the section only
+if there were genuinely none.
+- <decision> — <why; what you rejected>
 
 ## Definition of done
 - [x] <criterion — how it's satisfied>
 - [ ] <anything not done, with reason>
 
-## How to verify
-<exact commands the reviewer can run>
-
 ## Test results
-<the pass/fail summary from step 4>
+<the pass/fail summary from step 4, e.g. `npm test` → 84 passed. If there is no
+test setup, say so explicitly.>
+
+## Changes
+Lead with the most important edit. Group related edits under `###` sub-headings
+when the work spans areas, and use sub-bullets for detail. Each bullet is "what
+changed + why" — not a diff.
+- `path/to/file` — what changed and why
+
+## How to verify
+<exact commands the reviewer can run to see it working>
 
 ## Notes & follow-ups
-<risks, assumptions, anything deliberately left out>
+Lower-priority context only: risks, assumptions, things deliberately left out,
+suggested future work. (Decisions you need a verdict on go up in "Decisions &
+trade-offs".)
 ```
+
+The order is deliberate — highest decision-value first, reference detail last:
+**Summary → Decisions → Definition of done → Test results → Changes → How to
+verify → Notes**. A reviewer can stop after the first two or three sections and
+still make a confident call; everything below is drill-in material.
 
 Do **not** write a `.loop-task-output.json` file — the board answer below is the
 single source of truth, and a stray file would get swept into `git add -A`.
