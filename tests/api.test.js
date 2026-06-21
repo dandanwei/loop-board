@@ -148,6 +148,19 @@ describe('projects endpoint', () => {
     expect(alpha.backlog).toBe(2);
   });
 
+  it('GET /api/projects lists configured projects that have no open tasks', async () => {
+    await agent.post('/api/tasks').send({ title: 'a', project: 'alpha' });
+    // Configured in the UI but with no tasks — must still surface so it shows
+    // up in the "All projects" filter and the new-task project dropdown.
+    await agent.post('/api/projects-config').send({ project: 'gamma', path: '/srv/gamma' });
+    const res = await agent.get('/api/projects');
+    const labels = res.body.map((p) => p.project);
+    expect(labels).toContain('alpha');
+    expect(labels).toContain('gamma');
+    const gamma = res.body.find((p) => p.project === 'gamma');
+    expect(gamma.total).toBe(0);
+  });
+
   it('POST /api/projects/:project/claim claims atomically, 204 when empty', async () => {
     await agent.post('/api/tasks').send({ title: 'a', project: 'p' });
     const claim = await agent.post('/api/projects/p/claim').send({ agent_tool: 'claude' });

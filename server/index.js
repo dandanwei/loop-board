@@ -10,7 +10,7 @@ import {
   addEvent,
   getTask,
   listTasks,
-  distinctProjects,
+  selectableProjects,
   createTask,
   updateTask,
   deleteTask,
@@ -103,7 +103,9 @@ api.post(
   })
 );
 
-api.get('/projects', wrap((_req, res) => res.json(distinctProjects())));
+// Returns task-bearing projects AND configured-but-empty project labels, so the
+// UI pickers list every known project (see selectableProjects).
+api.get('/projects', wrap((_req, res) => res.json(selectableProjects())));
 
 api.get(
   '/tasks',

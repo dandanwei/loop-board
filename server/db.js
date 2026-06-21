@@ -187,6 +187,30 @@ export function distinctProjects() {
     .all();
 }
 
+// Project labels the UI pickers should offer: every project that has a
+// (non-archived) task, PLUS every project that has a configured repo mapping
+// even if it has no open tasks yet — e.g. a project freshly added in the
+// Configuration dialog, or one whose only tasks are archived. Configured-only
+// projects come back with zero counts so the label still appears in the
+// "All projects" filter and the new-task dropdown.
+export function selectableProjects() {
+  const rows = distinctProjects();
+  const seen = new Set(rows.map((r) => r.project));
+  for (const cfg of listProjectConfigs()) {
+    if (seen.has(cfg.project)) continue;
+    rows.push({
+      project: cfg.project,
+      total: 0,
+      backlog: 0,
+      in_progress: 0,
+      pending_review: 0,
+    });
+    seen.add(cfg.project);
+  }
+  rows.sort((a, b) => a.project.localeCompare(b.project));
+  return rows;
+}
+
 export function createTask(input) {
   const ts = now();
   const row = {
