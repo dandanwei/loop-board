@@ -219,6 +219,45 @@ describe('settings endpoints', () => {
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/positive/);
   });
+
+  it('GET /api/settings includes the default time cap', async () => {
+    const res = await agent.get('/api/settings');
+    expect(res.body.default_time_cap_minutes).toBe(30);
+  });
+
+  it('PATCH /api/settings updates and validates the default time cap', async () => {
+    const ok = await agent
+      .patch('/api/settings')
+      .send({ default_time_cap_minutes: 120 });
+    expect(ok.body.default_time_cap_minutes).toBe(120);
+    const bad = await agent
+      .patch('/api/settings')
+      .send({ default_time_cap_minutes: 0 });
+    expect(bad.status).toBe(400);
+    expect(bad.body.error).toMatch(/positive/);
+  });
+});
+
+describe('per-task time cap', () => {
+  it('POST /api/tasks accepts an optional time_cap_minutes', async () => {
+    const withCap = await agent
+      .post('/api/tasks')
+      .send({ title: 'a', project: 'p', time_cap_minutes: 45 });
+    expect(withCap.body.time_cap_minutes).toBe(45);
+    const noCap = await agent.post('/api/tasks').send({ title: 'b', project: 'p' });
+    expect(noCap.body.time_cap_minutes).toBeNull();
+  });
+
+  it('PATCH /api/tasks/:id sets and clears the cap', async () => {
+    const created = await agent.post('/api/tasks').send({ title: 'a', project: 'p' });
+    const id = created.body.id;
+    const set = await agent.patch(`/api/tasks/${id}`).send({ time_cap_minutes: 90 });
+    expect(set.body.time_cap_minutes).toBe(90);
+    const cleared = await agent
+      .patch(`/api/tasks/${id}`)
+      .send({ time_cap_minutes: null });
+    expect(cleared.body.time_cap_minutes).toBeNull();
+  });
 });
 
 describe('test-path endpoint', () => {

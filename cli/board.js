@@ -176,6 +176,8 @@ function printTask(task, { full = false } = {}) {
   if (task.branch) console.log(`  branch: ${task.branch}`);
   if (task.session_title) console.log(`  session: ${task.session_title}`);
   if (task.session_id) console.log(`  session_id: ${task.session_id}`);
+  if (task.time_cap_minutes)
+    console.log(`  time cap: ${task.time_cap_minutes}m`);
   if (full) {
     console.log('\n--- description ---');
     console.log(task.description || '(none)');
@@ -252,6 +254,10 @@ async function main() {
         description: fileOrInline('description') || '',
         definition_of_done: fileOrInline('dod') || '',
         priority: flags.priority ? Number(flags.priority) : 2,
+        // Optional per-task execution cap (minutes); omit to use the board default.
+        ...(flags.cap !== undefined
+          ? { time_cap_minutes: Number(flags.cap) }
+          : {}),
       });
       console.log(`Created task #${task.id}.`);
       if (asJson) printTask(task);
@@ -310,6 +316,28 @@ async function main() {
         author: AGENT_TOOL || 'agent',
       });
       console.log(`#${task.id} → ${task.status}`);
+      return;
+    }
+
+    case 'set-cap': {
+      // Set (or clear) a task's per-task execution cap, in minutes. Works in any
+      // column, so the cap can be tuned even while a task is in progress. Pass
+      // "default", "none", or "0" (or omit) to clear it back to the board default.
+      const id = positional[0];
+      if (!id) die('Usage: loop-board set-cap <id> <minutes|default>');
+      const raw = positional[1];
+      const clear =
+        raw === undefined || raw === 'default' || raw === 'none' || Number(raw) === 0;
+      const cap = clear ? null : Number(raw);
+      if (!clear && (!Number.isFinite(cap) || cap <= 0)) {
+        die('Cap must be a positive number of minutes, or "default" to clear it.');
+      }
+      const task = await req('PATCH', `/api/tasks/${id}`, { time_cap_minutes: cap });
+      console.log(
+        task.time_cap_minutes
+          ? `#${task.id} execution cap set to ${task.time_cap_minutes}m.`
+          : `#${task.id} execution cap cleared (uses board default).`
+      );
       return;
     }
 
@@ -460,6 +488,7 @@ Commands:
   create --title "..."              Create a task
         [--description ... | --description-file f]
         [--dod ... | --dod-file f] [--priority 1|2|3]
+        [--cap <minutes>]           per-task execution cap (default: board setting)
   claim <id> [--branch b]           Mark a task in_progress (set branch/session)
         [--session-title t]
   answer <id> --answer-file f       Post the agent's answer + metadata; moves to
@@ -467,6 +496,7 @@ Commands:
         [--status pending_review]
   comment <id> --body "..."         Add a comment/event
   status <id> <status>              Move a task (backlog|in_progress|pending_review|done|archived)
+  set-cap <id> <minutes|default>    Set/clear a task's execution cap (minutes); works in any column
   cleanup-branches [--apply]        Delete local branches already merged into the default
         [--default <branch>]        branch (i.e. completed/merged tasks); dry-run unless
         [--no-board]                --apply. Always prints the remaining branches. Annotates

@@ -175,9 +175,21 @@ fi
 (Note: `stat -f %m` is the macOS/BSD form; Linux uses `stat -c %Y`.) Treat this
 as a heuristic — if the log path can't be found, rely on the cap below.
 
-**Hard cap.** Stop waiting on any single task after **30 minutes** of wall-clock
-since *its own* launch (`started_at`). One slow task must not hold up reporting
-the others — resolve each task independently as it finishes or times out.
+**Hard cap (configurable, per task).** Stop waiting on any single task once it
+has run for its cap's worth of wall-clock since *its own* launch (`started_at`).
+The cap is **per task and configurable**:
+
+- Each task carries an optional `time_cap_minutes` (set at creation, or edited
+  any time — including while it's in progress — via the UI/`set-cap`). Read it
+  from `$BOARD show <id> --json`.
+- When a task leaves it unset (`null`), fall back to the board-wide default
+  `default_time_cap_minutes` from `curl -s $BOARD_URL/api/settings` (30 if
+  unset).
+
+So the effective cap is `task.time_cap_minutes ?? settings.default_time_cap_minutes`.
+Re-read the task's cap on each poll so a mid-flight bump takes effect. One slow
+task must not hold up reporting the others — resolve each independently as it
+finishes or times out.
 
 ## 4. Resolve each task — completion vs timeout
 
@@ -209,8 +221,10 @@ checked, tasks dispatched, completed, timed out. Then stop.
 ```bash
 LOOP_BOARD="$(pwd)"; BOARD="node $LOOP_BOARD/cli/board.js"; BOARD_URL="http://localhost:5151"
 curl -s $BOARD_URL/api/projects-config                 # configured projects
+curl -s $BOARD_URL/api/settings                        # default_time_cap_minutes (fallback cap)
 $BOARD list --project <p> --status backlog --json      # backlog for a project
 $BOARD next --project <p> --json                        # claim ONE (highest-priority) backlog task
-$BOARD show <id> --json                                 # poll status / read answer
+$BOARD show <id> --json                                 # poll status / read answer + .time_cap_minutes
+$BOARD set-cap <id> <minutes|default>                    # set/clear a task's execution cap
 $BOARD status <id> backlog                               # release on timeout
 ```

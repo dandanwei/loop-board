@@ -131,11 +131,12 @@ env (`BOARD_URL`, `BOARD_PROJECT`) → `.board.json` → defaults.
 loop-board next                 Atomically claim the next backlog task for the project
 loop-board show <id>            Show a task in full (description, DoD, answer)
 loop-board list [--status S]    List tasks for the project
-loop-board create --title "…"   Create a task (--description[-file], --dod[-file], --priority)
+loop-board create --title "…"   Create a task (--description[-file], --dod[-file], --priority, --cap)
 loop-board answer <id> \        Post answer + branch + session title; moves to pending_review
     --answer-file ans.md --branch b --session-title "…" [--status …]
 loop-board comment <id> --body "…"   Add a comment/event
 loop-board status <id> <status>      Move a task between columns
+loop-board set-cap <id> <min|default>  Set/clear a task's execution cap (minutes)
 loop-board projects             List projects and open counts
 ```
 
@@ -150,7 +151,7 @@ No auth. Base URL `http://localhost:5151`. JSON in/out.
 | GET | `/api/health` | Liveness check |
 | GET | `/api/projects` | Distinct projects with open counts |
 | GET | `/api/tasks?project=&status=&includeArchived=` | List tasks |
-| POST | `/api/tasks` | Create `{ title, project, description?, definition_of_done?, priority? }` |
+| POST | `/api/tasks` | Create `{ title, project, description?, definition_of_done?, priority?, time_cap_minutes? }` |
 | GET | `/api/tasks/:id` | Get one task **with its event timeline** |
 | PATCH | `/api/tasks/:id` | Update any task field(s) |
 | DELETE | `/api/tasks/:id` | Delete a task |
@@ -177,6 +178,16 @@ the branch into `master` and marks the task `done` (or, if the merge conflicts i
 a way it can't safely resolve, it aborts the merge and moves the task back to
 `pending_review` with a note for you to resolve manually). You can always move a
 task to `done`/`archived` yourself.
+
+### Execution cap
+
+When the orchestrator dispatches a task it stops waiting on it after a hard cap
+of wall-clock time. The cap is configurable: set a per-task `time_cap_minutes`
+(at creation via the **New task** modal / `--cap`, or any time afterwards via the
+task drawer / `set-cap` — even while it's in progress), or leave it unset to use
+the board-wide **Default execution cap** (set under ⚙ Configure → Board settings;
+30 minutes out of the box). The effective cap is the task's own value when set,
+otherwise the board default.
 
 ## Configuration
 
