@@ -17,6 +17,7 @@ const {
   deleteTask,
   addEvent,
   distinctProjects,
+  selectableProjects,
   claimNext,
   listProjectConfigs,
   getProjectConfig,
@@ -186,6 +187,39 @@ describe('distinctProjects', () => {
     expect(alpha.in_progress).toBe(1);
     expect(beta.pending_review).toBe(1);
     expect(beta.total).toBe(1); // archived excluded
+  });
+});
+
+describe('selectableProjects', () => {
+  it('includes configured projects with no open tasks (zero counts)', () => {
+    createTask({ title: 'a', project: 'alpha' });
+    // Configured in the UI but has no tasks yet.
+    upsertProjectConfig({ project: 'gamma', path: '/srv/gamma' });
+    // Configured AND has only an archived task — must still appear.
+    const arch = createTask({ title: 'd', project: 'delta' });
+    updateTask(arch.id, { status: 'archived' });
+    upsertProjectConfig({ project: 'delta', path: '/srv/delta' });
+
+    const rows = selectableProjects();
+    const labels = rows.map((r) => r.project);
+    expect(labels).toEqual(['alpha', 'delta', 'gamma']); // sorted, union, no dupes
+
+    const gamma = rows.find((r) => r.project === 'gamma');
+    expect(gamma.total).toBe(0);
+    expect(gamma.backlog).toBe(0);
+
+    // A task-bearing project keeps its real counts.
+    const alpha = rows.find((r) => r.project === 'alpha');
+    expect(alpha.total).toBe(1);
+    expect(alpha.backlog).toBe(1);
+  });
+
+  it('does not duplicate a project that has both tasks and a config', () => {
+    createTask({ title: 'a', project: 'alpha' });
+    upsertProjectConfig({ project: 'alpha', path: '/srv/alpha' });
+    const rows = selectableProjects().filter((r) => r.project === 'alpha');
+    expect(rows).toHaveLength(1);
+    expect(rows[0].total).toBe(1);
   });
 });
 
