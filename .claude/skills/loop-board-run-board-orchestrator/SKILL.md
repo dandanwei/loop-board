@@ -1,45 +1,54 @@
 ---
 name: loop-board-run-board-orchestrator
-description: Coordinate multi-project work from the Loop Board. For each configured project, dispatch a Claude Code sub-session that FIRST merges every reviewed branch waiting in the ready_to_merge column, THEN claims and implements its highest-priority backlog task (via the loop-board-take-task skill). Merges always take priority over taking new work. Projects run concurrently — one sub-session per project. Use when the user says "run the board orchestrator", "orchestrate the board", "dispatch board tasks", or "work all projects".
+description: Coordinate multi-project work from the Loop Board. For each configured project, repeatedly dispatch a Claude Code sub-session that FIRST merges every reviewed branch in the ready_to_merge column, THEN claims and implements one backlog task (via the loop-board-take-task skill) — looping until that project has no merges and no backlog left. Merges always take priority over taking new work. Projects drain concurrently — one sub-session per project at a time. Use when the user says "run the board orchestrator", "orchestrate the board", "dispatch board tasks", or "work all projects".
 ---
 
 # loop-board-run-board-orchestrator — coordinate multi-project task execution
 
 You run from the **loop-board repo** and dispatch work to **other projects'**
-Claude Code sessions, then collect results.
+Claude Code sessions, then collect results. Your job is to **drain every
+configured project's board** — clear its merge queue and work through its whole
+backlog — running projects concurrently.
 
-Each project's sub-session runs the **full everyday cycle** for that project —
-the `loop-board-take-task` skill — which works **two queues in a fixed order**:
+The unit of work you dispatch is one **merge-then-take cycle**, the
+`loop-board-take-task` skill, which works **two queues in a fixed order**:
 
 1. **Merge first.** Merge every reviewed branch in the project's
    `ready_to_merge` column into its default branch.
-2. **Then take new work.** Claim the project's highest-priority `backlog` task
-   and implement it.
+2. **Then take one task.** Claim the project's highest-priority `backlog` task,
+   implement it on a fresh branch, and post it to Pending Review.
 
-So the orchestrator pulls from **both** the `ready_to_merge` and `backlog`
-queues, and **merges always take priority over taking new backlog work** —
-because that ordering is baked into the cycle each sub-session runs.
+One cycle drains the *whole* merge queue but takes only *one* backlog task. To
+drain the backlog you **repeat the cycle** for that project until nothing is
+left (see the drain loop below). Because merging is step 1 of every cycle,
+**merges always take priority over taking new backlog work.**
 
-## Concurrency model — one sub-session per project, projects run concurrently
+## Concurrency model — per-project drain loop, projects run concurrently
 
-- **One sub-session per project per run.** Each project is a single git repo;
-  its sub-session does all of that project's work for this run — clearing the
-  `ready_to_merge` column, then taking **one** backlog task. You never launch a
-  second sub-session for the same project, because two sessions in the same
-  working tree (merging *and* implementing) would clobber each other.
-  (In-project concurrency would need git worktrees, which this skill does not
-  do.) Note the asymmetry: a sub-session may merge **several** ready branches
-  but takes **at most one** new backlog task.
-- **Different projects run concurrently.** Each project's sub-session works in
-  its own repo, so there is no shared working tree between them. Launch every
-  project's sub-session in the **background** without waiting, then watch them
-  all finish together. With N configured projects that have work (a merge queue
-  and/or a backlog), you end up with up to N sub-sessions running at once.
+- **Each project runs a drain loop.** Repeat the merge-then-take cycle for a
+  project until **both** its `ready_to_merge` and `backlog` queues are empty
+  (or a safety limit trips, below). Each cycle is a **fresh sub-session with its
+  own session id**, so every taken task lands on its own branch and its own
+  resumable session — exactly what the board's Resume button expects. The first
+  cycle clears the merge queue and takes the first backlog task; later cycles
+  almost always just take the next backlog task (the merge queue is already
+  empty, so step 1 is a quick no-op unless a human approves more mid-run).
+- **One sub-session per project at a time.** A project is a single git repo;
+  two sub-sessions in the same working tree (merging *and* implementing) would
+  clobber each other, so a project's cycles run **strictly sequentially** — wait
+  for one cycle's sub-session to finish before launching the next for the same
+  project. (In-project concurrency would need git worktrees, which this skill
+  does not do.)
+- **Different projects drain concurrently.** Each project works in its own repo,
+  so there is no shared working tree between them. Run every project's drain
+  loop at the same time: launch the first cycle for all projects in the
+  background, and whenever one finishes, immediately launch that project's next
+  cycle (if it still has work). With N projects that have work, up to N
+  sub-sessions run at once — one per project.
 
-The flow is therefore two passes: a **launch pass** (§2 — dispatch one
-merge-then-take sub-session per project that has work, back to back, without
-blocking) and a **wait pass** (§3 — poll every in-flight sub-session together
-until each completes or times out).
+So the shape is: **N concurrent per-project drain loops**, each looping
+merge-then-take until its project's board is empty, with at most one live
+sub-session per project.
 
 ## 0. Preconditions & setup
 
@@ -73,12 +82,11 @@ projects are eligible — a project needs a path mapping (set in the UI under
 ⚙ Configure) so you know where to `cd`. If the list is empty, tell the user to
 configure at least one project and stop.
 
-## 2. Launch pass — dispatch one merge-then-take sub-session per project (don't wait)
+## 2. Launch pass — start each project's drain loop (don't wait)
 
-Keep a running list of **active dispatches** as you go — record
-`{ project, path, session_id, log, started_at }` for each one you launch (plus
-the ids you saw in its `ready_to_merge` and `backlog` queues, so you can report
-what it should have worked). You'll watch them all together in §3.
+Keep a running list of **active projects** as you go. For each, track
+`{ project, path, current_session_id, log, cycle_count, started_at, last_backlog_count, merged_ids, taken: [] }`.
+You'll advance them all together in §3.
 
 Iterate the configured projects. For **each** project, do the following and then
 **immediately move to the next project** — do *not* wait for the sub-session to
@@ -86,15 +94,16 @@ finish:
 
 ### 2a. Check for work in either queue
 
-A project has work for this run if **either** queue is non-empty:
+A project needs draining if **either** queue is non-empty:
 
 ```bash
 $BOARD list --project <label> --status ready_to_merge --json   # merge queue
 $BOARD list --project <label> --status backlog --json          # backlog queue
 ```
 
-Skip a project only if **both** are empty. If `ready_to_merge` has tasks, this
-run will merge them (priority); if `backlog` has tasks, it will also take one.
+Skip a project only if **both** are empty. Record the current `backlog` count as
+`last_backlog_count` and the `ready_to_merge` ids as `merged_ids` (expected) so
+you can detect progress and report later.
 
 ### 2b. Verify the project path
 
@@ -107,86 +116,93 @@ curl -s -X POST $BOARD_URL/api/test-path \
 If `exists` is false or `isDirectory` is false, skip the project and warn the
 user — do not try to `cd` into a bad path.
 
-### 2c. Assign a session id (do NOT pre-claim)
+### 2c. Launch the project's first cycle
 
-Do **not** claim a task here. The sub-session decides what to do — it merges the
-`ready_to_merge` branches first, then claims its own backlog task via
-`loop-board next`. If you pre-claimed a backlog task (flipping it to
-`in_progress`), the sub-session's `next` call would skip it and the task could
-be lost between queues.
+Use the helper below (§2d) to dispatch one merge-then-take cycle in the
+background, then move on to the next project. Do **not** pre-claim a backlog task
+in the orchestrator — the sub-session claims its own via `loop-board next`; a
+pre-claim would flip the task to `in_progress` and hide it from that call.
 
-Generate the session id **yourself** so the run is resumable and deterministic:
+### 2d. Dispatch-a-cycle helper (used for every cycle, here and in §3)
 
-```bash
-SESSION_ID="$(uuidgen | tr 'A-Z' 'a-z')"
-```
-
-You launch the sub-session with this id below, and the `loop-board-take-task`
-skill records it on the task it takes (via `loop-board answer --session-id`), so
-the board's Resume button works once the sub-session posts its result.
-
-### 2d. Dispatch the project sub-session in the background
-
-Run the sub-session **in the project directory**, with the fixed session id and
-a human-friendly display name. Pass the project label and CLI path **in the
-prompt** so the sub-session doesn't have to infer them:
+Each cycle is a fresh sub-session with its **own** session id (so every task
+gets its own branch + resumable session):
 
 ```bash
+SESSION_ID="$(uuidgen | tr 'A-Z' 'a-z')"          # NEW id per cycle
 cd "<project_path>"
 claude \
   --session-id "$SESSION_ID" \
-  -n "orchestrate-<label>" \
+  -n "orchestrate-<label>-<cycle_count>" \
   --permission-mode acceptEdits \
   --output-format json \
-  -p "Use the loop-board-take-task skill to run a full cycle for project <label>: FIRST merge every branch in the ready_to_merge column into the default branch, THEN claim and implement the next backlog task. Merges take priority. The loop-board CLI is at $LOOP_BOARD/cli/board.js and the board URL is $BOARD_URL."
+  -p "Use the loop-board-take-task skill to run ONE cycle for project <label>: FIRST merge every branch in the ready_to_merge column into the default branch, THEN claim and implement exactly ONE backlog task. Merges take priority. The loop-board CLI is at $LOOP_BOARD/cli/board.js and the board URL is $BOARD_URL."
+cd "$LOOP_BOARD"                                   # back home so CLI paths resolve
 ```
 
-**Run this with the Bash tool in the background** (`run_in_background: true`) and
-tee its output to a per-project log file, e.g.
-`/tmp/loop-subsession-<label>.json`, so you can poll it later. **Do not block on
-it** — append it to your active list and go straight back to step 2a for the
-next project. Return to `$LOOP_BOARD` (`cd "$LOOP_BOARD"`) before the next
-project so CLI paths resolve.
-
-Because each launch is backgrounded and you don't wait between projects, the
-sub-sessions run **concurrently** — one per project.
+**Run this with the Bash tool in the background** (`run_in_background: true`),
+teeing output to a per-cycle log, e.g.
+`/tmp/loop-subsession-<label>-<cycle_count>.json`. **Do not block on it** —
+record `current_session_id` and `started_at`, bump `cycle_count`, and continue.
 
 > **Permissions.** `--permission-mode acceptEdits` auto-accepts file edits but
-> may still block some shell commands in print mode. For a fully unattended run
-> the sub-session typically needs broader permissions
-> (`--dangerously-skip-permissions`), and merges in particular need to run git
-> commands. Only use bypass against a **trusted task queue / sandbox** — it
-> removes the sub-session's safety prompts. Default to `acceptEdits` and let the
-> user opt into bypass explicitly.
+> may still block some shell commands in print mode. For a fully unattended drain
+> the sub-session needs to run git commands (the merges) and other shell steps,
+> so it typically needs broader permissions (`--dangerously-skip-permissions`).
+> Only use bypass against a **trusted task queue / sandbox** — it removes the
+> sub-session's safety prompts. Default to `acceptEdits` and let the user opt
+> into bypass explicitly.
 
-## 3. Wait pass — watch all in-flight sub-sessions together
+## 3. Drain pass — advance every project until its board is empty
 
-Once the launch pass is done, you have up to one running sub-session per project.
-Now poll them **all together** (not one-at-a-time) until each is resolved.
+Now run all the per-project drain loops concurrently. Poll the in-flight
+sub-sessions **together** (not one at a time). When a project's current cycle
+finishes, decide whether to launch its **next** cycle or mark it drained.
 
-**Primary signal — the sub-session process.** Each sub-session is a backgrounded
-`claude -p` run; it exits when the cycle (merges + one task) is done. The
-harness notifies you when a background command finishes, and its JSON output
-lands in `/tmp/loop-subsession-<label>.json`. That exit is the authoritative
-"this project is done" signal.
+**Cycle-finished signal.** Each cycle is a backgrounded `claude -p` that exits
+when its merge-then-take is done; the harness notifies you and its JSON output
+lands in `/tmp/loop-subsession-<label>-<cycle_count>.json`. That exit is the
+authoritative "this cycle is done" signal.
 
-**Corroborating signal — board state.** While waiting, you can confirm progress
-on the board:
+**When a cycle finishes, for that project:**
+
+1. **Record what it did.** The `ready_to_merge` ids it found are now `done` (add
+   to `merged_ids` actually merged); the backlog task it took is now
+   `pending_review` — read it with `$BOARD show <id> --json` and append to
+   `taken`. Note any merge conflicts the sub-session bounced back (still
+   `pending_review` with a conflict comment).
+2. **Re-check the project's queues:**
+
+   ```bash
+   $BOARD list --project <label> --status ready_to_merge --json
+   $BOARD list --project <label> --status backlog --json
+   ```
+
+3. **Decide:**
+   - **Both empty → project drained.** Mark it complete; stop looping it.
+   - **Work remains AND the loop is making progress → launch the next cycle.**
+     Use the §2d helper again (new session id, `cycle_count+1`), in the
+     background. Update `last_backlog_count`.
+   - **Work remains but NO progress → stop and surface it.** See the guard below.
+
+**No-progress guard (prevents infinite loops).** Before re-launching, confirm
+the last cycle actually advanced the project. A cycle made progress if the
+`backlog` count dropped **or** a `ready_to_merge` branch got merged. If a cycle
+finished and **neither** changed (e.g. the task failed and the sub-session left
+it `in_progress` or bounced it back to `backlog`, or a merge keeps conflicting),
+do **not** re-launch — that would loop forever on the same stuck item. Mark the
+project **stalled**, comment on the stuck task, and surface it:
 
 ```bash
-$BOARD list --project <label> --status ready_to_merge --json   # should drain toward empty
-$BOARD list --project <label> --status pending_review --json   # the taken task lands here
-$BOARD list --project <label> --status done --json             # merged tasks land here
+$BOARD comment <id> --body "Orchestrator stopped draining <label>: cycle made no progress on this task. Session id <SESSION_ID>."
 ```
 
-A project is finished when its sub-session process exits cleanly: the
-`ready_to_merge` branches it found should now be `done`, and the backlog task it
-took should be `pending_review`. As soon as a project resolves, mark it complete
-in your active list and stop polling it — but keep watching the rest until every
-active sub-session is resolved.
+**Safety cap.** Also stop a project's drain loop after a hard cap of cycles
+(e.g. **20**) as a backstop, even if it claims progress — and log that you
+capped it.
 
-**Hang detection — session-log mtime (best effort, macOS).** Per project, the
-session log lives at:
+**Hang detection — session-log mtime (best effort, macOS).** For the in-flight
+cycle:
 
 ```bash
 ENC="$(printf '%s' "<project_path>" | sed 's#/#-#g')"   # /a/b → -a-b
@@ -197,62 +213,61 @@ if [ -f "$LOG" ]; then
 fi
 ```
 
-(Note: `stat -f %m` is the macOS/BSD form; Linux uses `stat -c %Y`.) Treat this
-as a heuristic — if the log path can't be found, rely on the cap below.
+(`stat -f %m` is macOS/BSD; Linux uses `stat -c %Y`.) Heuristic only — if the
+log path can't be found, rely on the cap below.
 
-**Hard cap.** Stop waiting on any single sub-session after **30 minutes** of
-wall-clock since *its own* launch (`started_at`). One slow project must not hold
-up reporting the others — resolve each independently as it finishes or times
-out.
+**Per-cycle hard cap.** Stop waiting on any single cycle after **30 minutes** of
+wall-clock since *its own* launch. A hung cycle counts as a stall for its
+project (handle as §4 timeout); it must not hold up the other projects' loops.
 
-## 4. Resolve each project — completion vs timeout
+Keep advancing until **every** project is drained, stalled, or capped.
 
-Handle each active sub-session on its own as it settles:
+## 4. Resolve each project — drained vs. stalled/timeout
 
-- **Success** (process exited cleanly): read what it accomplished from the
-  board — the `ready_to_merge` ids it found are now `done` (merges), and the
-  backlog task it took is now `pending_review` (read its answer with
-  `$BOARD show <id>`). Also note the background sub-session's JSON output
-  (`/tmp/loop-subsession-<label>.json`) for its own summary, including any merge
-  conflicts it bounced back to `pending_review`.
-- **Timeout / hang** (cap hit or 10-min inactivity): the sub-session didn't
-  finish. Document it and surface it to the user. Any backlog task it had
-  already claimed will be stuck in `in_progress`; release it for retry:
+- **Drained** (both queues empty after a cycle): success. You have its full
+  `merged_ids` and `taken` lists for the roll-up.
+- **Stalled** (no-progress guard or cycle cap): report it; the offending task is
+  left where the sub-session put it (`in_progress` or bounced to `backlog`) plus
+  your comment. Don't try to unwind git from here.
+- **Timeout / hang** (per-cycle 30-min cap or 10-min inactivity): the cycle
+  didn't finish. Any backlog task it had claimed is stuck `in_progress`; release
+  it for retry and stop that project's loop:
 
   ```bash
-  # for each task left in_progress by the hung sub-session:
-  $BOARD comment <id> --body "Orchestrator timeout: sub-session for <label> didn't finish within the cap. Session id $SESSION_ID."
+  $BOARD comment <id> --body "Orchestrator timeout: cycle for <label> didn't finish within the cap. Session id <SESSION_ID>."
   $BOARD status <id> backlog
   ```
 
-  Leave any partially-merged state to the user — don't try to unwind git from
-  here. Do **not** immediately re-dispatch this run; surface it instead. (There
-  is no `failed` status; returning a claimed task to backlog lets a human or a
-  later run retry.)
+  Do **not** immediately re-dispatch; surface it. (There is no `failed` status;
+  returning a claimed task to backlog lets a human or a later run retry.)
 
 ## 5. Report roll-up
 
-When every active sub-session has been resolved (completed or timed out), print
-a short roll-up to the user. Per project:
+When every project is drained, stalled, capped, or timed out, print a roll-up.
+Per project:
 
-- **Merges:** which `ready_to_merge` task ids were merged to `done` (and any
-  bounced back on conflict).
-- **Task taken:** the backlog task id, its branch, final status
-  (`pending_review`), and a one-line summary of the answer.
-- **Session id** (for resume) and the project's final status (done / timed out).
+- **Merges:** the `ready_to_merge` task ids merged to `done` (and any bounced
+  back on conflict).
+- **Backlog drained:** the list of backlog task ids taken, each with its branch,
+  session id (for resume), and a one-line summary — these are now in Pending
+  Review awaiting your review.
+- **Outcome:** drained / stalled (which task) / timed out, and cycles run.
 
-Then a totals line: projects checked, sub-sessions dispatched, branches merged,
-tasks taken, timed out. Then stop.
+Then a totals line: projects checked, projects drained, branches merged, backlog
+tasks taken, cycles run, stalls + timeouts. Then stop. (Everything taken sits in
+Pending Review — the human reviews and approves; approved items become
+`ready_to_merge` for a future merge pass.)
 
 ## Quick reference
 
 ```bash
 LOOP_BOARD="$(pwd)"; BOARD="node $LOOP_BOARD/cli/board.js"; BOARD_URL="http://localhost:5151"
 curl -s $BOARD_URL/api/projects-config                       # configured projects
-$BOARD list --project <p> --status ready_to_merge --json     # merge queue (worked first)
-$BOARD list --project <p> --status backlog --json            # backlog queue (one task taken)
-$BOARD list --project <p> --status pending_review --json     # where the taken task lands
+$BOARD list --project <p> --status ready_to_merge --json     # merge queue (drained first, every cycle)
+$BOARD list --project <p> --status backlog --json            # backlog queue (one task per cycle; loop to drain)
+$BOARD list --project <p> --status pending_review --json     # where taken tasks land
 $BOARD list --project <p> --status done --json               # where merged tasks land
 $BOARD show <id> --json                                       # read a task / its answer
 $BOARD status <id> backlog                                    # release a stuck claim on timeout
+# Drain loop per project: while (ready_to_merge OR backlog non-empty) and progressing and under cap → dispatch one cycle (§2d).
 ```
