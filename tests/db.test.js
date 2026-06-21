@@ -267,10 +267,51 @@ describe('projects config', () => {
   });
 });
 
+describe('time cap', () => {
+  it('defaults to null (use board default) on create', () => {
+    const t = createTask({ title: 'x', project: 'p' });
+    expect(t.time_cap_minutes).toBeNull();
+  });
+
+  it('stores a positive integer cap, rounding fractions', () => {
+    const t = createTask({ title: 'x', project: 'p', time_cap_minutes: 45 });
+    expect(t.time_cap_minutes).toBe(45);
+    const frac = createTask({ title: 'y', project: 'p', time_cap_minutes: 12.6 });
+    expect(frac.time_cap_minutes).toBe(13);
+  });
+
+  it('coerces blank / zero / negative / garbage caps to null', () => {
+    for (const bad of ['', 0, -5, 'abc', null]) {
+      const t = createTask({ title: 'x', project: 'p', time_cap_minutes: bad });
+      expect(t.time_cap_minutes).toBeNull();
+    }
+  });
+
+  it('updates the cap and clears it back to null', () => {
+    const t = createTask({ title: 'x', project: 'p' });
+    expect(updateTask(t.id, { time_cap_minutes: 90 }).time_cap_minutes).toBe(90);
+    expect(updateTask(t.id, { time_cap_minutes: 0 }).time_cap_minutes).toBeNull();
+    expect(updateTask(t.id, { time_cap_minutes: 15 }).time_cap_minutes).toBe(15);
+    expect(updateTask(t.id, { time_cap_minutes: null }).time_cap_minutes).toBeNull();
+  });
+});
+
 describe('settings', () => {
   it('returns defaults when nothing is stored', () => {
     expect(getSettings()).toEqual(SETTINGS_DEFAULTS);
     expect(getSettings().stale_threshold_minutes).toBe(30);
+    expect(getSettings().default_time_cap_minutes).toBe(30);
+  });
+
+  it('persists and coerces the default time cap to a number', () => {
+    const out = updateSettings({ default_time_cap_minutes: 90 });
+    expect(out.default_time_cap_minutes).toBe(90);
+    expect(getSettings().default_time_cap_minutes).toBe(90);
+  });
+
+  it('rejects a non-positive or non-numeric default time cap', () => {
+    expect(() => updateSettings({ default_time_cap_minutes: 0 })).toThrow();
+    expect(() => updateSettings({ default_time_cap_minutes: 'abc' })).toThrow();
   });
 
   it('persists and coerces the stale threshold to a number', () => {

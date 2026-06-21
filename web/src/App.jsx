@@ -1,6 +1,9 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { api } from './api.js';
-import { DEFAULT_STALE_THRESHOLD_MIN } from './constants.js';
+import {
+  DEFAULT_STALE_THRESHOLD_MIN,
+  DEFAULT_TIME_CAP_MIN,
+} from './constants.js';
 import Board from './components/Board.jsx';
 import TaskDrawer from './components/TaskDrawer.jsx';
 import NewTaskModal from './components/NewTaskModal.jsx';
@@ -16,6 +19,7 @@ export default function App() {
   const [showConfig, setShowConfig] = useState(false);
   const [settings, setSettings] = useState({
     stale_threshold_minutes: DEFAULT_STALE_THRESHOLD_MIN,
+    default_time_cap_minutes: DEFAULT_TIME_CAP_MIN,
   });
   const [error, setError] = useState('');
 
@@ -123,6 +127,7 @@ export default function App() {
       {selectedId != null && (
         <TaskDrawer
           id={selectedId}
+          defaultTimeCap={settings.default_time_cap_minutes}
           onClose={() => setSelectedId(null)}
           onChanged={refresh}
         />
@@ -132,6 +137,7 @@ export default function App() {
         <NewTaskModal
           projects={projects}
           defaultProject={project}
+          defaultTimeCap={settings.default_time_cap_minutes}
           onClose={() => setShowNew(false)}
           onCreated={() => {
             setShowNew(false);

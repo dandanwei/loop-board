@@ -42,10 +42,20 @@ export default function ProjectsConfig({
   );
   const [savingThreshold, setSavingThreshold] = useState(false);
   const [thresholdSaved, setThresholdSaved] = useState(false);
+  // Board-wide default execution cap (minutes) for tasks that don't set their own.
+  const [timeCap, setTimeCap] = useState(
+    String(settings?.default_time_cap_minutes ?? 30)
+  );
+  const [savingTimeCap, setSavingTimeCap] = useState(false);
+  const [timeCapSaved, setTimeCapSaved] = useState(false);
 
   useEffect(() => {
     setThreshold(String(settings?.stale_threshold_minutes ?? 30));
   }, [settings?.stale_threshold_minutes]);
+
+  useEffect(() => {
+    setTimeCap(String(settings?.default_time_cap_minutes ?? 30));
+  }, [settings?.default_time_cap_minutes]);
 
   const load = async () => {
     try {
@@ -111,6 +121,26 @@ export default function ProjectsConfig({
     }
   };
 
+  const handleSaveTimeCap = async () => {
+    const n = Number(timeCap);
+    if (!Number.isFinite(n) || n <= 0) {
+      setError('Default time cap must be a positive number of minutes.');
+      return;
+    }
+    setSavingTimeCap(true);
+    setTimeCapSaved(false);
+    try {
+      await api.updateSettings({ default_time_cap_minutes: n });
+      setError('');
+      setTimeCapSaved(true);
+      onSettingsChanged?.();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setSavingTimeCap(false);
+    }
+  };
+
   const handleDelete = async (proj) => {
     if (!confirm(`Remove the path mapping for "${proj}"?`)) return;
     try {
@@ -170,6 +200,34 @@ export default function ProjectsConfig({
                 {savingThreshold ? 'Saving…' : 'Save'}
               </button>
               {thresholdSaved && (
+                <span className="text-xs text-emerald-600">✓ saved</span>
+              )}
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <label className="text-sm text-slate-600">
+                Default execution cap per task
+              </label>
+              <input
+                type="number"
+                min="1"
+                value={timeCap}
+                onChange={(e) => {
+                  setTimeCap(e.target.value);
+                  setTimeCapSaved(false);
+                }}
+                className="w-20 rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+              />
+              <span className="text-sm text-slate-600">
+                minutes (tasks may override this).
+              </span>
+              <button
+                onClick={handleSaveTimeCap}
+                disabled={savingTimeCap}
+                className="rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50 disabled:opacity-50"
+              >
+                {savingTimeCap ? 'Saving…' : 'Save'}
+              </button>
+              {timeCapSaved && (
                 <span className="text-xs text-emerald-600">✓ saved</span>
               )}
             </div>

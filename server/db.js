@@ -37,6 +37,7 @@ db.exec(`
     session_title      TEXT NOT NULL DEFAULT '',
     session_id         TEXT NOT NULL DEFAULT '',
     agent_tool         TEXT NOT NULL DEFAULT '',
+    time_cap_minutes   INTEGER,
     created_at         TEXT NOT NULL,
     updated_at         TEXT NOT NULL,
     claimed_at         TEXT,
@@ -72,7 +73,29 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_events_task ON task_events (task_id);
 `);
 
+// Lightweight migrations for databases created before a column existed —
+// CREATE TABLE IF NOT EXISTS never alters an existing table. Idempotent: each
+// ALTER only runs when the column is missing.
+function ensureColumn(table, column, ddl) {
+  const exists = db
+    .prepare(`PRAGMA table_info(${table})`)
+    .all()
+    .some((c) => c.name === column);
+  if (!exists) db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+}
+ensureColumn('tasks', 'time_cap_minutes', 'time_cap_minutes INTEGER');
+
 export const now = () => new Date().toISOString();
+
+// A per-task execution cap is an optional positive whole number of minutes.
+// Anything missing/blank/non-positive becomes NULL, which means "fall back to
+// the board-wide default_time_cap_minutes setting". Used on create and update.
+export function normalizeCap(value) {
+  if (value == null || value === '') return null;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.round(n);
+}
 
 const UPDATABLE = new Set([
   'title',
@@ -86,6 +109,7 @@ const UPDATABLE = new Set([
   'session_title',
   'session_id',
   'agent_tool',
+  'time_cap_minutes',
   'claimed_at',
   'completed_at',
 ]);
@@ -93,8 +117,8 @@ const UPDATABLE = new Set([
 // ---- queries ----------------------------------------------------------------
 
 const stmtInsertTask = db.prepare(`
-  INSERT INTO tasks (title, project, description, definition_of_done, status, priority, created_at, updated_at)
-  VALUES (@title, @project, @description, @definition_of_done, @status, @priority, @created_at, @updated_at)
+  INSERT INTO tasks (title, project, description, definition_of_done, status, priority, time_cap_minutes, created_at, updated_at)
+  VALUES (@title, @project, @description, @definition_of_done, @status, @priority, @time_cap_minutes, @created_at, @updated_at)
 `);
 
 const stmtGetTask = db.prepare(`SELECT * FROM tasks WHERE id = ?`);
@@ -172,6 +196,7 @@ export function createTask(input) {
     definition_of_done: input.definition_of_done || '',
     status: STATUSES.includes(input.status) ? input.status : 'backlog',
     priority: Number.isInteger(input.priority) ? input.priority : 2,
+    time_cap_minutes: normalizeCap(input.time_cap_minutes),
     created_at: ts,
     updated_at: ts,
   };
@@ -184,6 +209,11 @@ export function createTask(input) {
 }
 
 export function updateTask(id, patch, { event } = {}) {
+  // Sanitize the cap the same way create does, so a blank/0/garbage value
+  // resets to NULL ("use the board default") rather than being stored verbatim.
+  if ('time_cap_minutes' in patch) {
+    patch = { ...patch, time_cap_minutes: normalizeCap(patch.time_cap_minutes) };
+  }
   const fields = Object.keys(patch).filter((k) => UPDATABLE.has(k));
   if (fields.length) {
     const set = fields.map((f) => `${f} = @${f}`).join(', ');
@@ -285,6 +315,10 @@ export function deleteProjectConfig(project) {
 export const SETTINGS_DEFAULTS = {
   // Tasks in_progress longer than this many minutes are highlighted as stale.
   stale_threshold_minutes: 30,
+  // Default hard cap (minutes of wall-clock) the orchestrator allows a single
+  // task to run before timing it out. A task may override this with its own
+  // time_cap_minutes; this is the fallback when it doesn't.
+  default_time_cap_minutes: 30,
 };
 
 const stmtGetSetting = db.prepare(`SELECT value FROM settings WHERE key = ?`);
@@ -322,10 +356,10 @@ export function updateSettings(patch = {}) {
   const ts = now();
   for (const [key, value] of Object.entries(patch)) {
     if (!(key in SETTINGS_DEFAULTS)) continue; // ignore unknown keys
-    if (key === 'stale_threshold_minutes') {
+    if (key === 'stale_threshold_minutes' || key === 'default_time_cap_minutes') {
       const n = Number(value);
       if (!Number.isFinite(n) || n <= 0) {
-        throw new Error('stale_threshold_minutes must be a positive number');
+        throw new Error(`${key} must be a positive number`);
       }
     }
     stmtUpsertSetting.run({ key, value: String(value), updated_at: ts });

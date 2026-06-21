@@ -32,8 +32,9 @@ export function fmtDate(iso) {
   });
 }
 
-// Fallback used before the board's settings have loaded.
+// Fallbacks used before the board's settings have loaded.
 export const DEFAULT_STALE_THRESHOLD_MIN = 30;
+export const DEFAULT_TIME_CAP_MIN = 30;
 
 // Compact human duration: "45s", "12m", "3h 5m", "2d 4h".
 export function fmtDuration(ms) {

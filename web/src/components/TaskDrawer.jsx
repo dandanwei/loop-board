@@ -109,6 +109,69 @@ function ResumeButton({ session_id, branch, project }) {
   );
 }
 
+// Inline editor for a task's execution time cap (minutes). Editable in any
+// column, so the cap can be tuned even while the task is in progress. A blank
+// value clears the override and the task falls back to the board default.
+function TimeCapField({ task, defaultTimeCap, onSave }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+
+  const current = task.time_cap_minutes;
+  useEffect(() => {
+    if (!editing) setDraft(current != null ? String(current) : '');
+  }, [current, editing]);
+
+  const save = async () => {
+    const trimmed = draft.trim();
+    const value = trimmed === '' ? null : Number(trimmed);
+    if (value !== null && (!Number.isFinite(value) || value <= 0)) return;
+    await onSave(value);
+    setEditing(false);
+  };
+
+  if (editing) {
+    return (
+      <span className="inline-flex items-center gap-1">
+        <input
+          type="number"
+          min="1"
+          autoFocus
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') save();
+            if (e.key === 'Escape') setEditing(false);
+          }}
+          placeholder={defaultTimeCap ? String(defaultTimeCap) : 'default'}
+          className="w-16 rounded border border-slate-300 px-1 py-0.5 text-xs"
+        />
+        <button
+          onClick={save}
+          className="rounded border border-slate-200 px-1.5 py-0.5 text-[11px] text-slate-500 hover:bg-slate-50"
+        >
+          save
+        </button>
+      </span>
+    );
+  }
+
+  const label =
+    current != null
+      ? `${current}m cap`
+      : defaultTimeCap
+        ? `${defaultTimeCap}m cap (default)`
+        : 'cap: default';
+  return (
+    <button
+      onClick={() => setEditing(true)}
+      title="Hard cap on execution time for this task. Click to change; clear it to use the board default."
+      className="rounded bg-slate-100 px-1.5 py-0.5 font-medium text-slate-600 hover:bg-slate-200"
+    >
+      ⏱ {label}
+    </button>
+  );
+}
+
 function MarkdownField({ value, onSave, placeholder }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value || '');
@@ -169,7 +232,7 @@ function MarkdownField({ value, onSave, placeholder }) {
   );
 }
 
-export default function TaskDrawer({ id, onClose, onChanged }) {
+export default function TaskDrawer({ id, defaultTimeCap, onClose, onChanged }) {
   const [task, setTask] = useState(null);
   const [tab, setTab] = useState('answer');
   const [comment, setComment] = useState('');
@@ -264,6 +327,13 @@ export default function TaskDrawer({ id, onClose, onChanged }) {
                   <option value={2}>Medium</option>
                   <option value={3}>Low</option>
                 </select>
+                <TimeCapField
+                  task={task}
+                  defaultTimeCap={defaultTimeCap}
+                  onSave={(v) =>
+                    mutate(() => api.updateTask(id, { time_cap_minutes: v }))
+                  }
+                />
                 <span className="text-slate-400">#{task.id}</span>
                 <span className="text-slate-400">
                   updated {fmtDate(task.updated_at)}

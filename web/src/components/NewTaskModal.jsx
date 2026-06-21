@@ -14,12 +14,15 @@ import {
 export default function NewTaskModal({
   projects,
   defaultProject,
+  defaultTimeCap,
   onClose,
   onCreated,
 }) {
   const [title, setTitle] = useState('');
   const [project, setProject] = useState(defaultProject || '');
   const [priority, setPriority] = useState(2);
+  // Optional per-task execution cap (minutes); blank ⇒ board default.
+  const [cap, setCap] = useState('');
   const [description, setDescription] = useState('');
   const [dod, setDod] = useState('');
   const [error, setError] = useState('');
@@ -97,6 +100,11 @@ export default function NewTaskModal({
       setError('Title and project are required.');
       return;
     }
+    const capNum = Number(cap);
+    if (cap.trim() && (!Number.isFinite(capNum) || capNum <= 0)) {
+      setError('Time cap must be a positive number of minutes (or leave it blank).');
+      return;
+    }
     setSaving(true);
     try {
       await api.createTask({
@@ -105,6 +113,8 @@ export default function NewTaskModal({
         priority: Number(priority),
         description,
         definition_of_done: dod,
+        // Omit when blank so the task inherits the board default.
+        ...(cap.trim() ? { time_cap_minutes: capNum } : {}),
       });
       onCreated();
     } catch (e) {
@@ -172,7 +182,7 @@ export default function NewTaskModal({
                 ))}
               </datalist>
             </div>
-            <div className="w-40">
+            <div className="w-32">
               <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-400">
                 Priority
               </label>
@@ -185,6 +195,20 @@ export default function NewTaskModal({
                 <option value={2}>Medium</option>
                 <option value={3}>Low</option>
               </select>
+            </div>
+            <div className="w-32">
+              <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-400">
+                Time cap (min)
+              </label>
+              <input
+                type="number"
+                min="1"
+                value={cap}
+                onChange={(e) => setCap(e.target.value)}
+                placeholder={defaultTimeCap ? String(defaultTimeCap) : 'default'}
+                title="Hard cap on execution time for this task. Leave blank to use the board default."
+                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+              />
             </div>
           </div>
 

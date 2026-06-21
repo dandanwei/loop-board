@@ -216,9 +216,22 @@ fi
 (`stat -f %m` is macOS/BSD; Linux uses `stat -c %Y`.) Heuristic only — if the
 log path can't be found, rely on the cap below.
 
-**Per-cycle hard cap.** Stop waiting on any single cycle after **30 minutes** of
-wall-clock since *its own* launch. A hung cycle counts as a stall for its
-project (handle as §4 timeout); it must not hold up the other projects' loops.
+**Per-cycle hard cap (configurable).** Stop waiting on any single cycle once it
+has run for its cap's worth of wall-clock since *its own* launch. The cap is
+**configurable** rather than a fixed 30 minutes:
+
+- The board-wide default is `default_time_cap_minutes` from
+  `curl -s $BOARD_URL/api/settings` (30 if unset).
+- A backlog task may override it with its own `time_cap_minutes` (set at
+  creation, or edited any time — including while in progress — via the UI or
+  `$BOARD set-cap <id> <minutes|default>`). Once a cycle has claimed its task
+  (it shows up `in_progress` for that project), read that task's
+  `time_cap_minutes` from `$BOARD show <id> --json` and use it.
+
+So the effective cap is `task.time_cap_minutes ?? settings.default_time_cap_minutes`.
+Re-read it on each poll so a mid-flight bump takes effect. A hung cycle counts as
+a stall for its project (handle as §4 timeout); it must not hold up the other
+projects' loops.
 
 Keep advancing until **every** project is drained, stalled, or capped.
 
@@ -263,11 +276,13 @@ Pending Review — the human reviews and approves; approved items become
 ```bash
 LOOP_BOARD="$(pwd)"; BOARD="node $LOOP_BOARD/cli/board.js"; BOARD_URL="http://localhost:5151"
 curl -s $BOARD_URL/api/projects-config                       # configured projects
+curl -s $BOARD_URL/api/settings                              # default_time_cap_minutes (fallback cap)
 $BOARD list --project <p> --status ready_to_merge --json     # merge queue (drained first, every cycle)
 $BOARD list --project <p> --status backlog --json            # backlog queue (one task per cycle; loop to drain)
 $BOARD list --project <p> --status pending_review --json     # where taken tasks land
 $BOARD list --project <p> --status done --json               # where merged tasks land
-$BOARD show <id> --json                                       # read a task / its answer
+$BOARD show <id> --json                                       # read a task / its answer + .time_cap_minutes
+$BOARD set-cap <id> <minutes|default>                         # set/clear a task's execution cap
 $BOARD status <id> backlog                                    # release a stuck claim on timeout
 # Drain loop per project: while (ready_to_merge OR backlog non-empty) and progressing and under cap → dispatch one cycle (§2d).
 ```
